@@ -1,0 +1,21 @@
+# auto-installed binaries (yt-dlp, ffmpeg) — never commit these
+bin/
+
+# user data
+downloads/
+config.json
+.tmp/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
