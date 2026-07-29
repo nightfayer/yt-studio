@@ -234,8 +234,25 @@
   .qhead button:hover{color:#fff;background:rgba(255,255,255,.07)}
 
   .job{padding:15px 16px;display:grid;gap:0 13px;
-    grid-template-columns:auto 1fr auto auto;align-items:center;
+    grid-template-columns:auto minmax(0,1fr) auto auto auto;align-items:center;
     animation:rise .5s var(--ease) both;transition:border-color .4s var(--ease)}
+
+  /* ── live speed readout ── */
+  .spd{display:none;align-items:baseline;gap:5px;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .spd.on{display:flex;animation:pop .4s var(--ease) both}
+  .spd .pulse{width:7px;height:7px;border-radius:50%;background:var(--a3);
+    align-self:center;margin-right:2px;box-shadow:0 0 0 0 rgba(34,211,238,.7);
+    animation:pulseDot 1.4s ease-out infinite}
+  @keyframes pulseDot{
+    0%{box-shadow:0 0 0 0 rgba(34,211,238,.65);opacity:1}
+    70%{box-shadow:0 0 0 8px rgba(34,211,238,0);opacity:.75}
+    100%{box-shadow:0 0 0 0 rgba(34,211,238,0);opacity:1}}
+  .spd .num{font-size:19px;font-weight:680;letter-spacing:-.6px;line-height:1;
+    background:linear-gradient(120deg,#7dd3fc,#22d3ee 45%,#a78bfa);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .spd .unit{font-size:10.5px;font-weight:600;font-style:normal;color:var(--dim);
+    letter-spacing:.02em}
   .job .jt{width:58px;height:33px;border-radius:9px;object-fit:cover;background:#131320;
     grid-row:1}
   .job .info{min-width:0}
@@ -249,8 +266,8 @@
   .job.warn .st{color:#fcd34d}
   .job.error .st{color:#fda4b4}
 
-  .spark{width:74px;height:32px;display:none;opacity:.95}
-  .spark.on{display:block}
+  .spark{width:82px;height:34px;display:none;opacity:.95}
+  .spark.on{display:block;animation:pop .45s var(--ease) both}
   .pc{font:650 13px/1 inherit;color:var(--muted);min-width:42px;text-align:right;
     font-variant-numeric:tabular-nums}
   .job.done .pc{color:var(--ok)}
@@ -327,9 +344,10 @@
     body{padding:0 14px 70px}
     .search{flex-direction:column}.search .btn{width:100%}
     .meta{flex-direction:column}.thumbwrap{width:100%}
-    .job{grid-template-columns:auto 1fr auto}
+    .job{grid-template-columns:minmax(0,1fr) auto auto}
     .job .jt{display:none}
     .spark{display:none!important}
+    .spd .num{font-size:16px}
   }
   /* honour the OS "reduce motion" setting; also spares weak GPUs */
   @media(prefers-reduced-motion:reduce){
@@ -499,6 +517,12 @@ function fmtSpeed(bps){
   if(!bps) return null;
   return bps >= 1048576 ? (bps / 1048576).toFixed(1) + ' МБ/с'
                         : Math.round(bps / 1024) + ' КБ/с';
+}
+/* Splits a speed into number + unit so they can be styled separately. */
+function splitSpeed(bps){
+  return bps >= 1048576
+    ? {num: (bps / 1048576).toFixed(1), unit: 'МБ/с'}
+    : {num: String(Math.round(bps / 1024)), unit: 'КБ/с'};
 }
 function fmtTime(sec){
   if(sec === null || sec === undefined) return null;
@@ -695,9 +719,28 @@ $('#go').onclick = () => {
   toast(mode === 'video' ? 'Загрузка видео начата' : 'Загрузка MP3 начата');
 };
 
-/* ───────── live speed graph ───────── */
+/* ───────── live speed ─────────
+   yt-dlp reports its own speed, but it can be missing on the first samples and
+   during fragment switches. So the speed is also derived from the byte counter
+   between two polls, and the larger of the two readings is used. */
 const HISTORY = 46;
-const speedLog = {};            // job id -> array of bytes/sec samples
+const speedLog = {};   // job id -> bytes/sec samples for the sparkline
+const byteMark = {};   // job id -> {bytes, t} of the previous poll
+const speedAnim = {};  // job id -> {shown, target} for the number tween
+
+function measureSpeed(j){
+  const now = performance.now();
+  let derived = 0;
+  const prev = byteMark[j.id];
+  if(prev && j.bytesDone !== null && j.bytesDone !== undefined){
+    const db = j.bytesDone - prev.bytes;
+    const dt = (now - prev.t) / 1000;
+    if(dt > 0.15 && db > 0) derived = db / dt;
+  }
+  if(j.bytesDone !== null && j.bytesDone !== undefined)
+    byteMark[j.id] = {bytes: j.bytesDone, t: now};
+  return Math.max(j.speedBps || 0, derived);
+}
 
 function pushSample(id, bps){
   const a = speedLog[id] || (speedLog[id] = []);
@@ -705,8 +748,24 @@ function pushSample(id, bps){
   if(a.length > HISTORY) a.shift();
 }
 
+/* The number eases towards its target instead of jumping every poll. */
+function animateSpeeds(){
+  document.querySelectorAll('.job').forEach(el => {
+    const st = speedAnim[el.dataset.id];
+    const box = el.querySelector('.spd');
+    if(!st || !box || !box.classList.contains('on')) return;
+    st.shown += (st.target - st.shown) * 0.18;
+    if(Math.abs(st.target - st.shown) < st.target * 0.004) st.shown = st.target;
+    const s = splitSpeed(st.shown);
+    box.querySelector('.num').textContent = s.num;
+    box.querySelector('.unit').textContent = s.unit;
+  });
+  requestAnimationFrame(animateSpeeds);
+}
+requestAnimationFrame(animateSpeeds);
+
 function drawSpark(svg, samples){
-  const W = 74, H = 32, pad = 2;
+  const W = 82, H = 34, pad = 3;
   if(samples.length < 2){ svg.innerHTML = ''; return; }
   const peak = Math.max.apply(null, samples) || 1;
   const step = W / (HISTORY - 1);
@@ -747,8 +806,6 @@ function statusLine(j){
   else out.push(esc(j.stage || ''));
 
   if(j.status === 'running'){
-    const sp = fmtSpeed(j.speedBps);
-    if(sp) out.push('<span class="live">' + sp + '</span>');
     const size = j.bytesTotal
       ? (fmtBytes(j.bytesDone) + ' / ' + fmtBytes(j.bytesTotal))
       : (j.bytesDone ? fmtBytes(j.bytesDone) : null);
@@ -790,7 +847,9 @@ function refresh(){
           '<img class="jt"' + (j.thumb ? ' src="' + esc(j.thumb) +
             '" referrerpolicy="no-referrer"' : '') + ' alt="">' +
           '<div class="info"><div class="nm"></div><div class="st"></div></div>' +
-          '<svg class="spark" viewBox="0 0 74 32" preserveAspectRatio="none"></svg>' +
+          '<div class="spd"><span class="pulse"></span>' +
+            '<b class="num">0</b><i class="unit">КБ/с</i></div>' +
+          '<svg class="spark" viewBox="0 0 82 34" preserveAspectRatio="none"></svg>' +
           '<div style="display:flex;align-items:center;gap:9px">' +
             '<span class="pc"></span><span class="act"></span></div>' +
           '<div class="bar"><i></i></div>' +
@@ -813,17 +872,23 @@ function refresh(){
       el.querySelector('.pc').textContent =
         done ? (j.warn ? '!' : '✓') : bad ? '—' : Math.round(j.progress || 0) + '%';
 
-      /* live speed graph: one sample per server update */
+      /* live speed: big animated readout + sparkline */
       const spark = el.querySelector('.spark');
+      const spd = el.querySelector('.spd');
       if(j.status === 'running'){
+        const bps = measureSpeed(j);
+        const anim = speedAnim[j.id] || (speedAnim[j.id] = {shown: bps, target: bps});
+        anim.target = bps;
+        spd.classList.toggle('on', bps > 0);
         if(lastTick[j.id] !== j.tick){
           lastTick[j.id] = j.tick;
-          pushSample(j.id, j.speedBps);
+          pushSample(j.id, bps);
         }
         const s = speedLog[j.id] || [];
         if(s.length > 1){ spark.classList.add('on'); drawSpark(spark, s); }
       }else{
         spark.classList.remove('on');
+        spd.classList.remove('on');
       }
 
       const want = done ? 'folder' : bad ? 'log' : 'cancel';
@@ -846,8 +911,9 @@ function refresh(){
 
     items.querySelectorAll('.job').forEach(el => {
       if(!list.some(j => j.id === el.dataset.id)){
-        delete speedLog[el.dataset.id];
-        delete lastTick[el.dataset.id];
+        const id = el.dataset.id;
+        delete speedLog[id]; delete lastTick[id];
+        delete byteMark[id]; delete speedAnim[id];
         el.remove();
       }
     });

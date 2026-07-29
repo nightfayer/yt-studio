@@ -52,7 +52,7 @@ FFMPEG_SOURCES = [
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
 TOKEN = secrets.token_urlsafe(24)
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 setup_state = {"stage": "idle", "message": "", "done": False, "error": None,
                "ytdlpVersion": None, "appVersion": APP_VERSION}
