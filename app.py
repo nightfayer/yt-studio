@@ -52,7 +52,7 @@ FFMPEG_SOURCES = [
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
 TOKEN = secrets.token_urlsafe(24)
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 
 setup_state = {"stage": "idle", "message": "", "done": False, "error": None,
                "ytdlpVersion": None, "appVersion": APP_VERSION}
@@ -210,15 +210,33 @@ def update_ytdlp():
 
 # ---------------------------------------------------------------- probing
 
-def run_json(args):
-    p = subprocess.run([YTDLP] + args, capture_output=True, timeout=180,
-                       creationflags=NO_WINDOW)
+def run_json(args, timeout=75):
+    """Runs yt-dlp and parses its JSON, with a hard time limit.
+
+    Without a limit a single unreachable request can keep the browser spinner
+    running for minutes, which looks like a freeze.
+    """
+    cmd = [YTDLP, "--ignore-config", "--no-warnings",
+           "--socket-timeout", "15", "--retries", "2"] + args
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout,
+                           creationflags=NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "yt-dlp не ответил за %d с. Проверьте интернет и ссылку, "
+            "затем обновите yt-dlp в настройках." % timeout)
+
     txt = p.stdout.decode("utf-8", "replace")
     if p.returncode != 0 or not txt.strip():
-        err = [l for l in (p.stderr or b"").decode("utf-8", "replace").splitlines()
+        err = [l.strip() for l in
+               (p.stderr or b"").decode("utf-8", "replace").splitlines()
                if l.strip()]
-        raise RuntimeError(err[-1] if err else "yt-dlp не смог прочитать ссылку")
-    return json.loads(txt)
+        msg = err[-1] if err else "yt-dlp не смог прочитать ссылку"
+        raise RuntimeError(msg.replace("ERROR: ", ""))
+    try:
+        return json.loads(txt)
+    except ValueError:
+        raise RuntimeError("yt-dlp вернул неожиданный ответ")
 
 
 AUDIO_BITRATES = [320, 256, 192, 160, 128, 96, 64]
@@ -227,9 +245,13 @@ AUDIO_BITRATES = [320, 256, 192, 160, 128, 96, 64]
 def probe(url):
     """Returns metadata + the qualities actually available for this video."""
     playlist, first_entry = None, None
-    if re.search(r"[?&]list=", url) or "/playlist" in url:
+    m = re.search(r"[?&]list=([\w-]+)", url)
+    # RD.. / UL.. are auto-generated "mixes": endless and pointless to scan.
+    is_mix = bool(m and m.group(1).startswith(("RD", "UL")))
+    if (m and not is_mix) or "/playlist" in url:
         try:
-            flat = run_json(["-J", "--flat-playlist", "--no-warnings", url])
+            flat = run_json(["-J", "--flat-playlist", "--playlist-end", "500",
+                             url], timeout=45)
             entries = [e for e in (flat.get("entries") or []) if e]
             if flat.get("_type") == "playlist" and len(entries) > 1:
                 playlist = {"count": len(entries),
@@ -239,13 +261,13 @@ def probe(url):
             pass
 
     try:
-        info = run_json(["-J", "--no-playlist", "--no-warnings", url])
+        info = run_json(["-J", "--no-playlist", url])
     except Exception:
         # A pure playlist link has no video of its own: read the first item so
         # the quality list still reflects real formats.
         if not first_entry:
             raise
-        info = run_json(["-J", "--no-playlist", "--no-warnings", first_entry])
+        info = run_json(["-J", "--no-playlist", first_entry])
 
     by_height, best_abr, has_avc = {}, 0, set()
     for f in info.get("formats") or []:

@@ -477,14 +477,21 @@ const $ = s => document.querySelector(s);
 
 /* Every API call carries the session token; the server also pins a
    SameSite=Strict cookie, so no other site can drive this app. */
-function api(path, body){
+function api(path, body, timeoutMs){
+  const ctrl = new AbortController();
+  const timer = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   return fetch(path, {
     method: body ? 'POST' : 'GET',
     credentials: 'same-origin',
+    signal: ctrl.signal,
     headers: Object.assign({'X-YTS-Token': window.__T || ''},
                            body ? {'Content-Type': 'application/json'} : {}),
     body: body ? JSON.stringify(body) : undefined
-  }).then(r => r.json().catch(() => ({error: 'HTTP ' + r.status})));
+  }).then(r => r.json().catch(() => ({error: 'HTTP ' + r.status})))
+    .catch(e => ({error: e.name === 'AbortError'
+      ? 'Сервер не ответил вовремя. Проверьте окно консоли приложения.'
+      : 'Нет связи с приложением: ' + e.message}))
+    .finally(() => { if(timer) clearTimeout(timer); });
 }
 
 let info = null, mode = 'video', quality = null, ready = false;
@@ -599,14 +606,34 @@ $('#find').onclick = () => {
   const url = $('#url').value.trim();
   if(!url) return toast('Вставьте ссылку');
   if(!ready) return toast('Компоненты ещё загружаются');
+
   const b = $('#find');
   b.disabled = true; b.innerHTML = '<span class="spin"></span>';
   banner('');
-  api('/api/info', {url}).then(d => {
-    if(d.error){ banner(d.error, 'err'); $('#preview').classList.remove('on'); return; }
-    info = d; render();
-  }).catch(e => banner(String(e), 'err'))
-    .finally(() => { b.disabled = false; b.textContent = 'Найти'; });
+
+  /* Long waits get explained instead of leaving a silent spinner. */
+  const hint1 = setTimeout(() =>
+    banner('Читаю ссылку… для плейлистов это может занять до минуты', 'warn'), 6000);
+  const hint2 = setTimeout(() =>
+    banner('Всё ещё жду ответа yt-dlp. Если так и не ответит — откройте ' +
+           'настройки и нажмите «Обновить yt-dlp»', 'warn'), 25000);
+  const stop = () => { clearTimeout(hint1); clearTimeout(hint2); };
+
+  api('/api/info', {url}, 100000).then(d => {
+    stop();
+    if(d.error){
+      banner(d.error, 'err');
+      $('#preview').classList.remove('on');
+      return;
+    }
+    banner('');
+    info = d;
+    render();
+  }).finally(() => {
+    stop();
+    b.disabled = false;
+    b.textContent = 'Найти';
+  });
 };
 
 function render(){
