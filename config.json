@@ -1,8 +1,6 @@
 {
   "outputDir": "C:\\Users\\NightWalker\\Desktop\\yt\\downloads",
-  "proxy": "",
   "browserCookies": "none",
-  "playerClient": "tv_embedded",
   "downloadSubs": false,
   "dpiBypass": true
 }

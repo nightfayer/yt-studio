@@ -418,13 +418,8 @@
               <small>Фрагментация ClientHello для обхода замедления ТСПУ/DPI без сторонних VPN</small></span>
           </label>
         </div>
-        <div class="row">
-          <div class="field" style="flex:1;min-width:220px">
-            <input type="text" id="proxy" placeholder="Свой прокси (опционально): http://127.0.0.1:10809 или socks5://..." style="padding-left:16px">
-          </div>
-        </div>
         <div class="row" style="margin-top:8px">
-          <div style="flex:1;min-width:180px">
+          <div style="flex:1;min-width:220px">
             <label class="hint" style="margin:0 0 4px;display:block">Cookies браузера (для 18+ и приватных видео):</label>
             <select id="browserCookies" class="sel">
               <option value="none">Без cookies (по умолчанию)</option>
@@ -434,16 +429,6 @@
               <option value="brave">Brave Browser</option>
               <option value="opera">Opera</option>
               <option value="vivaldi">Vivaldi</option>
-            </select>
-          </div>
-          <div style="flex:1;min-width:180px">
-            <label class="hint" style="margin:0 0 4px;display:block">Клиент YouTube (форматы и качество):</label>
-            <select id="playerClient" class="sel">
-              <option value="tv_embedded">Smart TV Embedded (все качества: 1080p/4K, рекомендуется)</option>
-              <option value="android,web">Android + Web</option>
-              <option value="ios,web">iOS + Web</option>
-              <option value="mweb">Mobile Web</option>
-              <option value="default">Стандартный (без флагов)</option>
             </select>
           </div>
         </div>
@@ -615,9 +600,7 @@ function fmtViews(n){
       setTimeout(() => { const b = $('#boot'); if(b) b.remove(); }, 620);
       api('/api/config').then(c => {
         $('#dir').value = c.outputDir || '';
-        $('#proxy').value = c.proxy || '';
         $('#browserCookies').value = c.browserCookies || 'none';
-        $('#playerClient').value = c.playerClient || 'tv_embedded';
         if(c.downloadSubs){
           subs = true;
           $('#swSubs').classList.add('on');
@@ -666,9 +649,7 @@ $('#saveNet').onclick = () => {
   const b = $('#saveNet'), old = b.textContent;
   b.disabled = true; b.innerHTML = '<span class="spin"></span>';
   api('/api/setNetwork', {
-    proxy: $('#proxy').value.trim(),
     browserCookies: $('#browserCookies').value,
-    playerClient: $('#playerClient').value,
     downloadSubs: subs,
     dpiBypass: dpiBypass
   }).then(r => {

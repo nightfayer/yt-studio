@@ -80,9 +80,7 @@ setup_state = {"stage": "idle", "message": "", "done": False, "error": None,
 
 DEFAULT_CONFIG = {
     "outputDir": DOWNLOAD_DIR,
-    "proxy": "",
     "browserCookies": "none",
-    "playerClient": "tv_embedded",
     "downloadSubs": False,
     "dpiBypass": True,
 }
@@ -447,12 +445,9 @@ def update_ytdlp():
 # ---------------------------------------------------------------- probing
 
 def extra_network_args():
-    """Returns extra arguments for proxy, browser cookies, and throttling bypass."""
+    """Returns extra arguments for DPI bypass, browser cookies, and 4K TV client."""
     args = []
-    proxy = (CONFIG.get("proxy") or "").strip()
-    if proxy:
-        args += ["--proxy", proxy]
-    elif CONFIG.get("dpiBypass", True):
+    if CONFIG.get("dpiBypass", True):
         port = ensure_dpi_proxy()
         if port:
             args += ["--proxy", "socks5://127.0.0.1:%d" % port, "--http-chunk-size", "10M"]
@@ -461,9 +456,8 @@ def extra_network_args():
     if cookies and cookies != "none":
         args += ["--cookies-from-browser", cookies]
 
-    client = (CONFIG.get("playerClient") or "tv_embedded").strip()
-    if client and client != "default":
-        args += ["--extractor-args", "youtube:player_client=" + client]
+    # Smart TV Embedded client is always used to bypass PO Token restriction and unlock 1080p/4K
+    args += ["--extractor-args", "youtube:player_client=tv_embedded"]
 
     return args
 
@@ -960,9 +954,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             return self._send(200, {
                 "outputDir": out_dir(),
-                "proxy": CONFIG.get("proxy", ""),
                 "browserCookies": CONFIG.get("browserCookies", "none"),
-                "playerClient": CONFIG.get("playerClient", "tv_embedded"),
                 "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
                 "dpiBypass": bool(CONFIG.get("dpiBypass", True)),
                 "ytdlpVersion": setup_state["ytdlpVersion"]
