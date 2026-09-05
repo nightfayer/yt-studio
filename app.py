@@ -898,12 +898,10 @@ class Handler(BaseHTTPRequestHandler):
                 return True
         return False
 
-    # -- security: loopback, LAN, or cloudflare tunnel, token-gated API, Lax cookie
+    # -- security: loopback, LAN, token-gated API, Lax cookie
     def _host_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0].lower()
         if host in ("127.0.0.1", "localhost", "[::1]", "::1"):
-            return True
-        if host.endswith(".trycloudflare.com") or host.endswith(".cloudflareaccess.com"):
             return True
         if self._is_private_ip(host):
             return True
@@ -931,8 +929,6 @@ class Handler(BaseHTTPRequestHandler):
             return True
         if re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$", origin):
             return True
-        if origin.endswith(".trycloudflare.com") or origin.endswith(".cloudflareaccess.com"):
-            return True
         m = re.match(r"^https?://([^:/]+)(:\d+)?$", origin)
         if m and self._is_private_ip(m.group(1)):
             return True
@@ -949,8 +945,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         if cookie:
-            is_https = (self.headers.get("X-Forwarded-Proto") == "https" or
-                        self.headers.get("CF-Visitor") is not None)
+            is_https = self.headers.get("X-Forwarded-Proto") == "https"
             sec = "; Secure" if is_https else ""
             self.send_header("Set-Cookie",
                              "yts=%s; Path=/; SameSite=Lax; HttpOnly%s" % (TOKEN, sec))
