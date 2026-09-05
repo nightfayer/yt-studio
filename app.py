@@ -883,10 +883,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    # -- security: loopback only, token-gated API, SameSite=Strict cookie
+    # -- security: loopback or cloudflare tunnel, token-gated API, Lax cookie
     def _host_ok(self):
-        host = (self.headers.get("Host") or "").split(":")[0]
-        return host in ("127.0.0.1", "localhost", "[::1]", "::1")
+        host = (self.headers.get("Host") or "").split(":")[0].lower()
+        return (host in ("127.0.0.1", "localhost", "[::1]", "::1") or
+                host.endswith(".trycloudflare.com") or
+                host.endswith(".cloudflareaccess.com"))
 
     def _token_ok(self):
         if self.headers.get("X-YTS-Token") == TOKEN:
@@ -899,10 +901,14 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _origin_ok(self):
-        origin = self.headers.get("Origin")
+        origin = (self.headers.get("Origin") or "").lower()
         if not origin:
             return True
-        return re.match(r"^http://(127\.0\.0\.1|localhost)(:\d+)?$", origin) is not None
+        if re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$", origin):
+            return True
+        if origin.endswith(".trycloudflare.com") or origin.endswith(".cloudflareaccess.com"):
+            return True
+        return False
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", cookie=False):
         if isinstance(body, (dict, list)):
@@ -915,8 +921,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         if cookie:
+            is_https = (self.headers.get("X-Forwarded-Proto") == "https" or
+                        self.headers.get("CF-Visitor") is not None)
+            sec = "; Secure" if is_https else ""
             self.send_header("Set-Cookie",
-                             "yts=%s; Path=/; SameSite=Strict; HttpOnly" % TOKEN)
+                             "yts=%s; Path=/; SameSite=Lax; HttpOnly%s" % (TOKEN, sec))
         self.end_headers()
         self.wfile.write(body)
 
@@ -941,7 +950,32 @@ class Handler(BaseHTTPRequestHandler):
                                       "text/html; charset=utf-8", cookie=True)
             except FileNotFoundError:
                 return self._send(404, "index.html не найден",
-                                  "text/plain; charset=utf-8")
+                                   "text/plain; charset=utf-8")
+
+        if path == "/api/download":
+            qs = urllib.parse.parse_qs(self.path.split("?")[1] if "?" in self.path else "")
+            jid = (qs.get("id") or [""])[0]
+            job = safe_get_job(jid)
+            if not job or not job.get("file") or not os.path.exists(job["file"]):
+                return self._send(404, {"error": "Файл не найден"})
+            filepath = job["file"]
+            filename = os.path.basename(filepath)
+            filesize = os.path.getsize(filepath)
+
+            encoded_name = urllib.parse.quote(filename)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(filesize))
+            self.send_header("Content-Disposition",
+                             "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (encoded_name, encoded_name))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                with open(filepath, "rb") as f:
+                    shutil.copyfileobj(f, self.wfile, length=262144)
+            except Exception:
+                pass
+            return
 
         if not path.startswith("/api/"):
             return self._send(404, {"error": "not found"})

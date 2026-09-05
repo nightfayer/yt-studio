@@ -903,6 +903,7 @@ function drawSpark(svg, samples){
 
 /* ───────── queue ───────── */
 const I_FOLDER = '<svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+const I_DL = '<svg viewBox="0 0 24 24"><path d="M12 16 6 9h4V3h4v6h4l-6 7zM4 19h16v2H4z"/></svg>';
 const I_X = '<svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>';
 const I_LOG = '<svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 5h16v2H4V9zm0 5h11v2H4v-2zm0 5h11v2H4v-2z"/></svg>';
 
@@ -1022,18 +1023,22 @@ function renderJobs(list){
       spd.classList.remove('on');
     }
 
-    const want = done ? 'folder' : bad ? 'log' : 'cancel';
+    const want = done ? 'done' : bad ? 'log' : 'cancel';
     const act = el.querySelector('.act');
     if(act.dataset.k !== want){
       act.dataset.k = want;
       act.innerHTML =
-        want === 'folder' ? '<button class="icb" title="Показать файл">' + I_FOLDER + '</button>'
-      : want === 'log'    ? '<button class="icb" title="Показать журнал">' + I_LOG + '</button>'
-      :                     '<button class="icb" title="Отменить">' + I_X + '</button>';
-      act.querySelector('.icb').onclick = () =>
-        want === 'folder' ? api('/api/reveal', {path: j.file})
-      : want === 'log'    ? el.querySelector('.log').classList.toggle('on')
-      :                     api('/api/cancel', {id: j.id});
+        want === 'done' ? '<a href="/api/download?id=' + encodeURIComponent(j.id) + '" class="icb" title="Скачать файл на устройство" download>' + I_DL + '</a>' +
+                          '<button class="icb rev-btn" title="Показать файл в проводнике">' + I_FOLDER + '</button>'
+      : want === 'log'  ? '<button class="icb log-btn" title="Показать журнал">' + I_LOG + '</button>'
+      :                   '<button class="icb cancel-btn" title="Отменить">' + I_X + '</button>';
+      if(want === 'done'){
+        act.querySelector('.rev-btn').onclick = () => api('/api/reveal', {path: j.file});
+      }else if(want === 'log'){
+        act.querySelector('.log-btn').onclick = () => el.querySelector('.log').classList.toggle('on');
+      }else{
+        act.querySelector('.cancel-btn').onclick = () => api('/api/cancel', {id: j.id});
+      }
     }
 
     const pre = el.querySelector('.log');
