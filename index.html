@@ -437,9 +437,10 @@
             </select>
           </div>
           <div style="flex:1;min-width:180px">
-            <label class="hint" style="margin:0 0 4px;display:block">Клиент YouTube (обход DPI / скорость):</label>
+            <label class="hint" style="margin:0 0 4px;display:block">Клиент YouTube (форматы и качество):</label>
             <select id="playerClient" class="sel">
-              <option value="android,web">Android + Web (рекомендуется)</option>
+              <option value="tv_embedded">Smart TV Embedded (все качества: 1080p/4K, рекомендуется)</option>
+              <option value="android,web">Android + Web</option>
               <option value="ios,web">iOS + Web</option>
               <option value="mweb">Mobile Web</option>
               <option value="default">Стандартный (без флагов)</option>
@@ -616,7 +617,7 @@ function fmtViews(n){
         $('#dir').value = c.outputDir || '';
         $('#proxy').value = c.proxy || '';
         $('#browserCookies').value = c.browserCookies || 'none';
-        $('#playerClient').value = c.playerClient || 'android,web';
+        $('#playerClient').value = c.playerClient || 'tv_embedded';
         if(c.downloadSubs){
           subs = true;
           $('#swSubs').classList.add('on');

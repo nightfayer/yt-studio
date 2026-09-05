@@ -82,7 +82,7 @@ DEFAULT_CONFIG = {
     "outputDir": DOWNLOAD_DIR,
     "proxy": "",
     "browserCookies": "none",
-    "playerClient": "android,web",
+    "playerClient": "tv_embedded",
     "downloadSubs": False,
     "dpiBypass": True,
 }
@@ -461,7 +461,7 @@ def extra_network_args():
     if cookies and cookies != "none":
         args += ["--cookies-from-browser", cookies]
 
-    client = (CONFIG.get("playerClient") or "android,web").strip()
+    client = (CONFIG.get("playerClient") or "tv_embedded").strip()
     if client and client != "default":
         args += ["--extractor-args", "youtube:player_client=" + client]
 
@@ -933,7 +933,7 @@ class Handler(BaseHTTPRequestHandler):
                 "outputDir": out_dir(),
                 "proxy": CONFIG.get("proxy", ""),
                 "browserCookies": CONFIG.get("browserCookies", "none"),
-                "playerClient": CONFIG.get("playerClient", "android,web"),
+                "playerClient": CONFIG.get("playerClient", "tv_embedded"),
                 "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
                 "dpiBypass": bool(CONFIG.get("dpiBypass", True)),
                 "ytdlpVersion": setup_state["ytdlpVersion"]
