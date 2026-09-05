@@ -487,6 +487,37 @@
     .aurora{display:none}
     body{background:radial-gradient(circle at 30% -10%,#15132a,#06060b 62%)}
   }
+
+  /* ───────── platform badges ───────── */
+  .platforms{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:11px}
+  .plat-chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:550;
+    padding:4px 10px;border-radius:99px;background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.08);color:var(--muted);
+    transition:all .2s cubic-bezier(.2,0,0,1);user-select:none;cursor:default}
+  .plat-chip i{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
+  .plat-chip.yt{color:#ff4d4d;border-color:rgba(255,77,77,.25);background:rgba(255,77,77,.06)}
+  .plat-chip.vk{color:#2787f5;border-color:rgba(39,135,245,.25);background:rgba(39,135,245,.06)}
+  .plat-chip.rutube{color:#00d2ff;border-color:rgba(0,210,255,.25);background:rgba(0,210,255,.06)}
+  .plat-chip.twitch{color:#bf94ff;border-color:rgba(191,148,255,.25);background:rgba(191,148,255,.06)}
+  .plat-chip.coub{color:#38bdf8;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.06)}
+  .plat-chip.more{color:var(--muted);opacity:.75;font-size:11px}
+  .plat-chip.act{transform:scale(1.08);box-shadow:0 0 14px currentColor}
+
+  .chip.plat-yt{color:#ff4d4d;border-color:rgba(255,77,77,.35);background:rgba(255,77,77,.1);font-weight:700}
+  .chip.plat-vk{color:#2787f5;border-color:rgba(39,135,245,.35);background:rgba(39,135,245,.1);font-weight:700}
+  .chip.plat-rutube{color:#00d2ff;border-color:rgba(0,210,255,.35);background:rgba(0,210,255,.1);font-weight:700}
+  .chip.plat-twitch{color:#bf94ff;border-color:rgba(191,148,255,.35);background:rgba(191,148,255,.1);font-weight:700}
+  .chip.plat-coub{color:#38bdf8;border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.1);font-weight:700}
+  .chip.plat-web{color:var(--a3);border-color:var(--border);background:var(--card);font-weight:700}
+
+  /* ───────── audio format selector ───────── */
+  .audio-fmt-bar{display:flex;align-items:center;gap:10px;margin:-2px 0 12px;animation:fadeSlide .2s ease}
+  .audio-fmt-lbl{font-size:12px;font-weight:600;color:var(--muted)}
+  .fmt-pills{display:flex;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border);gap:3px}
+  .fmt-pill{padding:4px 12px;font-size:12px;font-weight:600;border-radius:6px;border:none;background:transparent;
+    color:var(--muted);cursor:pointer;transition:all .18s ease}
+  .fmt-pill:hover{color:var(--text)}
+  .fmt-pill.act{background:var(--card);color:var(--a);box-shadow:0 1px 4px rgba(0,0,0,.3)}
 </style>
 </head>
 <body>
@@ -518,7 +549,7 @@
   <div class="card main">
     <div class="search">
       <div class="field">
-        <input type="text" id="url" placeholder="Вставьте ссылку на видео YouTube…"
+        <input type="text" id="url" placeholder="Вставьте ссылку на YouTube, VK, Rutube, Twitch, Coub…"
                autocomplete="off" spellcheck="false" aria-label="Ссылка на видео">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 13.4a1 1 0 0 1 0-1.4l4-4a3 3 0 0 0-4.2-4.2l-1.5 1.4a1 1 0 0 0 1.4 1.4l1.5-1.4a1 1 0 0 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0zm2.8-2.8a1 1 0 0 1 0 1.4l-4 4a3 3 0 0 0 4.2 4.2l1.5-1.4a1 1 0 0 0-1.4-1.4l-1.5 1.4a1 1 0 0 1-1.4-1.4l4-4a1 1 0 0 1 1.4 0z"/></svg>
         <button type="button" class="paste-btn" id="pasteBtn" title="Вставить ссылку из буфера обмена">
@@ -527,6 +558,14 @@
         </button>
       </div>
       <button class="btn" id="find">Найти</button>
+    </div>
+    <div class="platforms" id="platBar">
+      <span class="plat-chip yt" data-plat="yt" title="YouTube видео, Shorts и плейлисты"><i></i>YouTube</span>
+      <span class="plat-chip vk" data-plat="vk" title="VK Видео и клипы ВКонтакте"><i></i>VK Видео</span>
+      <span class="plat-chip rutube" data-plat="rutube" title="Rutube и Rutube Sport"><i></i>Rutube</span>
+      <span class="plat-chip twitch" data-plat="twitch" title="Twitch клипы и записи трансляций"><i></i>Twitch</span>
+      <span class="plat-chip coub" data-plat="coub" title="Коубы с полным звуком"><i></i>Coub</span>
+      <span class="plat-chip more" title="TikTok, Vimeo, Dailymotion, Twitter/X и ещё 1000+ поддерживаемых сайтов">+1000 сайтов</span>
     </div>
 
     <div class="banner" id="banner" role="status" aria-live="polite"></div>
@@ -646,6 +685,13 @@
       </div>
 
       <div class="lbl" id="optLbl">Качество видео</div>
+      <div class="audio-fmt-bar" id="audioFmtBar" style="display:none">
+        <span class="audio-fmt-lbl">Формат:</span>
+        <div class="fmt-pills">
+          <button type="button" class="fmt-pill act" data-fmt="mp3" title="Универсальный MP3 для любых плееров и систем">MP3</button>
+          <button type="button" class="fmt-pill" data-fmt="m4a" title="M4A (AAC) — нативно для Apple (iPhone/iPad/Mac) без потерь">M4A (AAC)</button>
+        </div>
+      </div>
       <div class="opts" id="opts"></div>
 
       <div class="switches">
@@ -712,6 +758,18 @@ function api(path, body, timeoutMs){
 
 let info = null, mode = 'video', quality = null, ready = false;
 let compat = false, wholeList = false, subs = false, dpiBypass = true;
+let audioFormat = 'mp3';
+
+function detectPlatform(url){
+  if(!url) return null;
+  const u = String(url).toLowerCase();
+  if(u.includes('youtube.com') || u.includes('youtu.be')) return {key: 'yt', name: 'YouTube'};
+  if(u.includes('vk.com') || u.includes('vkvideo.ru')) return {key: 'vk', name: 'VK Видео'};
+  if(u.includes('rutube.ru')) return {key: 'rutube', name: 'Rutube'};
+  if(u.includes('twitch.tv')) return {key: 'twitch', name: 'Twitch'};
+  if(u.includes('coub.com')) return {key: 'coub', name: 'Coub'};
+  return {key: 'web', name: 'Web-видео'};
+}
 
 const esc = s => String(s).replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1069,6 +1127,34 @@ $('#swSound').onclick = e => {
   api('/api/setPreferences', {theme: currentTheme, soundFx: SoundFX.enabled});
 };
 
+/* ───────── platform & format handlers ───────── */
+function updatePlatHighlight(){
+  const plat = detectPlatform($('#url').value.trim());
+  document.querySelectorAll('.plat-chip').forEach(el => {
+    el.classList.toggle('act', !!(plat && el.dataset.plat === plat.key));
+  });
+}
+$('#url').addEventListener('input', updatePlatHighlight);
+document.querySelectorAll('.plat-chip').forEach(el => {
+  el.onclick = () => {
+    $('#url').focus();
+    if(el.dataset.plat === 'more'){
+      toast('Поддерживаются ссылки с более чем 1000 сайтов');
+    } else {
+      toast('Вставьте ссылку с ' + el.textContent.trim());
+    }
+  };
+});
+
+document.querySelectorAll('.fmt-pill').forEach(btn => {
+  btn.onclick = () => {
+    audioFormat = btn.dataset.fmt;
+    document.querySelectorAll('.fmt-pill').forEach(x => x.classList.toggle('act', x === btn));
+    SoundFX.playStart();
+    renderOpts();
+  };
+});
+
 /* ───────── find ───────── */
 const pasteBtn = $('#pasteBtn');
 if(pasteBtn){
@@ -1078,6 +1164,7 @@ if(pasteBtn){
         const txt = await navigator.clipboard.readText();
         if(txt && txt.trim()){
           $('#url').value = txt.trim();
+          updatePlatHighlight();
           toast('Ссылка вставлена из буфера');
           SoundFX.playStart();
           $('#find').click();
@@ -1092,7 +1179,10 @@ if(pasteBtn){
 
 $('#url').addEventListener('keydown', e => { if(e.key === 'Enter') $('#find').click(); });
 $('#url').addEventListener('paste', () =>
-  setTimeout(() => { if($('#url').value.trim()) $('#find').click(); }, 60));
+  setTimeout(() => {
+    updatePlatHighlight();
+    if($('#url').value.trim()) $('#find').click();
+  }, 60));
 
 $('#find').onclick = () => {
   const url = $('#url').value.trim();
@@ -1137,12 +1227,16 @@ function render(){
   $('#thumb').alt = info.title || '';
   $('#title').textContent = info.title || '';
 
+  const plat = detectPlatform(info.webpage || $('#url').value);
+  const platChip = plat ? '<span class="chip plat-' + plat.key + '" style="animation-delay:0ms"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:6px;box-shadow:0 0 6px currentColor"></i>' + esc(plat.name) + '</span>' : '';
+
   const chips = [info.uploader, info.durationText, fmtViews(info.viewCount),
                  info.video.length ? 'до ' + info.video[0].label : null,
                  info.sourceAbr ? 'звук ~' + info.sourceAbr + ' kbps' : null]
     .filter(Boolean)
-    .map((c, i) => '<span class="chip" style="animation-delay:' + (i * 45) +
+    .map((c, i) => '<span class="chip" style="animation-delay:' + ((i + 1) * 45) +
                    'ms">' + esc(c) + '</span>');
+  if(platChip) chips.unshift(platChip);
   if(info.playlist)
     chips.push('<span class="chip hi">Плейлист · ' + info.playlist.count +
                ' видео</span>');
@@ -1166,8 +1260,10 @@ function render(){
 
 function renderOpts(){
   const box = $('#opts');
-  $('#optLbl').textContent = mode === 'video' ? 'Качество видео' : 'Битрейт MP3';
+  $('#optLbl').textContent = mode === 'video' ? 'Качество видео' : 'Битрейт аудио';
   $('#swCompat').style.display = mode === 'video' ? 'flex' : 'none';
+  const fmtBar = $('#audioFmtBar');
+  if(fmtBar) fmtBar.style.display = mode === 'audio' ? 'flex' : 'none';
 
   const list = mode === 'video'
     ? info.video.map(v => ({
@@ -1181,14 +1277,17 @@ function renderOpts(){
         if(a === 0){
           return {v: 0, t: 'Оригинал (без потерь)',
             s: 'лучшее', flag: false,
-            tip: 'Исходный поток YouTube (M4A/Opus) без перекодирования в MP3 — скачивается быстрее'};
+            tip: 'Исходный аудиопоток (M4A/Opus) без перекодирования — максимальная скорость и исходное качество'};
         }
         const over = info.sourceAbr && a > info.sourceAbr + 8;
-        return {v: a, t: a + ' kbps',
+        const fmtName = audioFormat === 'm4a' ? 'M4A' : 'MP3';
+        return {v: a, t: a + ' kbps · ' + fmtName,
           s: a >= 320 ? 'макс' : a >= 192 ? 'высокое' : a <= 96 ? 'компактно' : '',
           flag: over,
-          tip: over ? 'Источник ~' + info.sourceAbr + ' kbps: файл станет крупнее, ' +
-                      'а качество останется как у источника' : ''};
+          tip: (audioFormat === 'm4a'
+            ? 'AAC кодек (нативно для iPhone/iPad/Mac и Apple Music). '
+            : 'MP3 кодек (универсальная совместимость). ') +
+            (over ? 'Источник ~' + info.sourceAbr + ' kbps: файл станет крупнее, а качество останется как у источника' : '')};
       });
 
   if(!list.length){
@@ -1218,6 +1317,8 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
     x.setAttribute('aria-selected', x === t);
   });
   $('#slider').classList.toggle('right', mode === 'audio');
+  const fmtBar = $('#audioFmtBar');
+  if(fmtBar) fmtBar.style.display = mode === 'audio' ? 'flex' : 'none';
   quality = null;
   if(info) renderOpts();
 });
@@ -1250,12 +1351,14 @@ $('#go').onclick = () => {
   api('/api/download', {
     url: wholeList ? info.originalUrl : info.webpage,
     mode, quality, compat, playlist: wholeList,
+    audioFormat: audioFormat,
     subs: subs,
     title: wholeList ? info.playlist.title : info.title,
     thumb: info.thumbnail
   }).then(r => r.error ? banner(r.error, 'err') : null);
   toast(mode === 'video' ? 'Загрузка видео начата'
-       : (quality === 0 ? 'Загрузка оригинального аудио начата' : 'Загрузка MP3 начата'));
+       : (quality === 0 ? 'Загрузка оригинального аудио начата'
+       : (audioFormat === 'm4a' ? 'Загрузка M4A начата' : 'Загрузка MP3 начата')));
 };
 
 /* ───────── live speed ─────────
@@ -1357,8 +1460,9 @@ function notifyCompletion(j, el){
 
 function statusLine(j){
   const out = [];
+  const fmtName = (j.audioFormat || 'mp3').toUpperCase();
   const kind = j.mode === 'audio'
-    ? (j.quality === 0 ? 'Оригинал аудио' : 'MP3 ' + j.quality + ' kbps')
+    ? (j.quality === 0 ? 'Оригинал аудио' : (fmtName + ' ' + j.quality + ' kbps'))
     : 'MP4 ' + j.quality + 'p' + (j.compat ? ' · H.264' : '') + (j.subs ? ' · Субтитры' : '');
   out.push(esc(kind));
   if(j.total) out.push(esc(j.index + '/' + j.total));

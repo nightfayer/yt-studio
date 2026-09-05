@@ -468,6 +468,9 @@ def extra_network_args():
         if port:
             args += ["--proxy", "socks5://127.0.0.1:%d" % port, "--http-chunk-size", "10M"]
 
+    # Player client fallback: enables iOS/mweb fallbacks if YouTube challenges the web client
+    args += ["--extractor-args", "youtube:player_client=default,ios,mweb"]
+
     cookies_file = os.path.join(APP_DIR, "cookies.txt")
     if os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0:
         args += ["--cookies", cookies_file]
@@ -606,7 +609,7 @@ def _num(s):
         return None
 
 
-def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False):
+def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False, audio_format="mp3"):
     frag_count = "8" if CONFIG.get("dpiBypass", True) else "4"
     base = [
         YTDLP, "--newline", "--no-warnings", "--no-mtime", "--ignore-config",
@@ -639,7 +642,8 @@ def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False):
         if str(quality) in ("0", "original", "best"):
             return base + ["-f", "bestaudio/best", "-x",
                            "--embed-thumbnail", "--embed-metadata", url]
-        return base + ["-f", "bestaudio/best", "-x", "--audio-format", "mp3",
+        fmt = "m4a" if str(audio_format).lower() == "m4a" else "mp3"
+        return base + ["-f", "bestaudio/best", "-x", "--audio-format", fmt,
                        "--audio-quality", "%dK" % int(quality),
                        "--embed-thumbnail", "--embed-metadata", url]
 
@@ -767,7 +771,7 @@ def apply_progress(job_id, line):
             job["progress"] = ((idx - 1) + job["progress"] / 100.0) / job["total"] * 100.0
 
 
-def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
+def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False, audio_format="mp3"):
     tmp_dir = os.path.join(TMP_ROOT, job_id)
     os.makedirs(tmp_dir, exist_ok=True)
     safe_update_job(job_id, stage="Ожидание слота")
@@ -782,7 +786,7 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
         safe_update_job(job_id, status="running", stage="Подготовка к скачиванию...", log="")
         log = []
         try:
-            cmd = build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs)
+            cmd = build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs, audio_format)
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  creationflags=NO_WINDOW)
             with jobs_lock:
@@ -1181,10 +1185,12 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("mode") not in ("video", "audio"):
                     return self._send(400, {"error": "Неизвестный режим"})
 
+                audio_fmt = str(body.get("audioFormat", "mp3")).strip().lower()
                 jid = "%d%03d" % (time.time() * 1000, len(jobs) % 1000)
                 job = {"id": jid, "title": body.get("title") or "",
                        "mode": body.get("mode"),
                        "quality": dl_quality,
+                       "audioFormat": audio_fmt,
                        "compat": bool(body.get("compat")),
                        "playlist": bool(body.get("playlist")),
                        "subs": bool(body.get("subs", False)),
@@ -1200,7 +1206,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 threading.Thread(target=worker, args=(
                     jid, dl_url, job["mode"], job["quality"],
-                    job["compat"], job["playlist"], job["subs"]), daemon=True).start()
+                    job["compat"], job["playlist"], job["subs"], audio_fmt), daemon=True).start()
                 return self._send(200, public_job(job))
 
             if path == "/api/cancel":
