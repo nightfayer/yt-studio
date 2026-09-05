@@ -84,6 +84,8 @@ DEFAULT_CONFIG = {
     "browserCookies": "none",
     "downloadSubs": False,
     "dpiBypass": True,
+    "theme": "neon",
+    "soundFx": True,
 }
 
 
@@ -1083,6 +1085,8 @@ class Handler(BaseHTTPRequestHandler):
                 "hasCookiesFile": has_cookies,
                 "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
                 "dpiBypass": bool(CONFIG.get("dpiBypass", True)),
+                "theme": CONFIG.get("theme", "neon"),
+                "soundFx": bool(CONFIG.get("soundFx", True)),
                 "ytdlpVersion": setup_state["ytdlpVersion"],
                 "lanUrl": ("http://%s:%s/" % (local_ip, port)) if local_ip != "127.0.0.1" else None
             })
@@ -1267,6 +1271,14 @@ class Handler(BaseHTTPRequestHandler):
                         stop_dpi_proxy()
                     elif not old_dpi:
                         ensure_dpi_proxy()
+                save_config(CONFIG)
+                return self._send(200, {"ok": True})
+
+            if path == "/api/setPreferences":
+                if "theme" in body:
+                    CONFIG["theme"] = str(body["theme"]).strip()
+                if "soundFx" in body:
+                    CONFIG["soundFx"] = bool(body["soundFx"])
                 save_config(CONFIG)
                 return self._send(200, {"ok": True})
 
