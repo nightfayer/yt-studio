@@ -22,7 +22,10 @@ echo Откройте эту ссылку на телефоне или любо�
 echo Чтобы остановить: закройте это окно.
 echo ================================================================
 echo.
+:tunnel_loop
 "%~dp0bin\cloudflared.exe" tunnel --protocol http2 --url http://127.0.0.1:%PORT% --http-host-header localhost
 echo.
-echo Туннель остановлен.
-pause
+echo Соединение было сброшено или закрыто.
+echo Автоматический перезапуск через 3 секунды... (Закройте окно для остановки)
+timeout /t 3 /nobreak >nul
+goto tunnel_loop

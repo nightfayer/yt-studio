@@ -946,8 +946,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, "forbidden", "text/plain; charset=utf-8")
             try:
                 with open(os.path.join(APP_DIR, "index.html"), "rb") as f:
-                    return self._send(200, f.read(),
-                                      "text/html; charset=utf-8", cookie=True)
+                    content = f.read()
+                inject = ('<script>window.__T = "%s";</script>' % TOKEN).encode("utf-8")
+                content = content.replace(b"<head>", b"<head>" + inject, 1)
+                return self._send(200, content,
+                                  "text/html; charset=utf-8", cookie=True)
             except FileNotFoundError:
                 return self._send(404, "index.html не найден",
                                    "text/plain; charset=utf-8")
