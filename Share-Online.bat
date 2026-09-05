@@ -18,7 +18,7 @@ if not exist "%~dp0bin\cloudflared.exe" (
     pause
     exit /b 1
 )
-"%~dp0bin\cloudflared.exe" tunnel --url http://127.0.0.1:8080 --http-host-header localhost
+"%~dp0bin\cloudflared.exe" tunnel --protocol http2 --url http://127.0.0.1:8080 --http-host-header localhost
 echo.
 echo Tunnel stopped.
 pause
