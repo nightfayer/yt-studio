@@ -883,6 +883,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+
     # -- security: loopback or cloudflare tunnel, token-gated API, Lax cookie
     def _host_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0].lower()
@@ -898,6 +904,12 @@ class Handler(BaseHTTPRequestHandler):
             k, _, v = part.strip().partition("=")
             if k == "yts" and v == TOKEN:
                 return True
+        try:
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            if qs.get("token", [""])[0] == TOKEN:
+                return True
+        except Exception:
+            pass
         return False
 
     def _origin_ok(self):
@@ -927,7 +939,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie",
                              "yts=%s; Path=/; SameSite=Lax; HttpOnly%s" % (TOKEN, sec))
         self.end_headers()
-        self.wfile.write(body)
+        if getattr(self, "command", "GET") != "HEAD":
+            try:
+                self.wfile.write(body)
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+                pass
 
     def _guard(self):
         if not self._host_ok():
@@ -937,6 +953,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, {"error": "forbidden"})
             return False
         return True
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -1009,6 +1028,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
 
+            # Flush initial stream chunk immediately so proxies establish the connection
+            try:
+                self.wfile.write(b": connected\n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+
             last_data = ""
             pings = 0
             while True:
@@ -1025,7 +1051,7 @@ class Handler(BaseHTTPRequestHandler):
                         break
                 else:
                     pings += 1
-                    if pings >= 25:  # ~12 sec heartbeat ping
+                    if pings >= 7:  # ~3.15 sec heartbeat ping to keep edge proxies alive
                         pings = 0
                         try:
                             self.wfile.write(b": ping\n\n")

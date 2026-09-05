@@ -1062,7 +1062,8 @@ function refresh(){
 function initSSE(){
   if(!window.EventSource) return;
   try {
-    const es = new EventSource('/api/events');
+    const t = window.__T ? '?token=' + encodeURIComponent(window.__T) : '';
+    const es = new EventSource('/api/events' + t);
     es.onmessage = e => {
       try {
         const list = JSON.parse(e.data);
