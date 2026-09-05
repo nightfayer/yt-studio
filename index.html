@@ -314,6 +314,12 @@
   .hint{margin-top:11px;font-size:11.5px;color:var(--dim);line-height:1.6}
   .hint code{background:rgba(255,255,255,.07);padding:1px 5px;border-radius:5px;
     font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  .sel{width:100%;height:46px;padding:0 14px;color:var(--text);
+    background:rgba(255,255,255,.045);border:1px solid var(--stroke);
+    border-radius:14px;font:13.5px/1 inherit;outline:none;transition:.3s var(--ease);
+    cursor:pointer}
+  .sel:focus{border-color:rgba(124,92,255,.8);box-shadow:0 0 0 4px rgba(124,92,255,.12)}
+  .sel option{background:#12121d;color:var(--text)}
 
   /* ═══════════ boot ═══════════ */
   #boot{position:fixed;inset:0;z-index:50;background:rgba(6,6,11,.93);
@@ -398,8 +404,43 @@
           <div class="field" style="flex:1;min-width:210px">
             <input type="text" id="dir" aria-label="Папка сохранения" style="padding-left:16px">
           </div>
+          <button class="btn sec" id="pickDir" title="Выбрать папку через проводник">Обзор...</button>
           <button class="btn sec" id="saveDir">Сохранить</button>
           <button class="btn sec" id="openDir">Открыть</button>
+        </div>
+      </div>
+      <div class="sect">
+        <div class="lbl">Сеть и обход замедления</div>
+        <div class="row">
+          <div class="field" style="flex:1;min-width:220px">
+            <input type="text" id="proxy" placeholder="Прокси: http://127.0.0.1:10809 или socks5://..." style="padding-left:16px">
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div style="flex:1;min-width:180px">
+            <label class="hint" style="margin:0 0 4px;display:block">Cookies браузера (для 18+ и приватных видео):</label>
+            <select id="browserCookies" class="sel">
+              <option value="none">Без cookies (по умолчанию)</option>
+              <option value="chrome">Google Chrome</option>
+              <option value="edge">Microsoft Edge</option>
+              <option value="firefox">Mozilla Firefox</option>
+              <option value="brave">Brave Browser</option>
+              <option value="opera">Opera</option>
+              <option value="vivaldi">Vivaldi</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:180px">
+            <label class="hint" style="margin:0 0 4px;display:block">Клиент YouTube (обход DPI / скорость):</label>
+            <select id="playerClient" class="sel">
+              <option value="android,web">Android + Web (рекомендуется)</option>
+              <option value="ios,web">iOS + Web</option>
+              <option value="mweb">Mobile Web</option>
+              <option value="default">Стандартный (без флагов)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sec" id="saveNet">Сохранить настройки сети</button>
         </div>
       </div>
       <div class="sect">
@@ -430,7 +471,7 @@
         </button>
         <button class="tab" data-mode="audio" role="tab" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.6a4 4 0 1 0 2 3.4V7h5V3h-7z"/></svg>
-          Аудио (MP3)
+          Аудио (MP3 / M4A)
         </button>
       </div>
 
@@ -442,6 +483,11 @@
           <i aria-hidden="true"></i>
           <span>Совместимый кодек H.264
             <small>Откроется в старых плеерах, на телевизорах и в монтажках</small></span>
+        </label>
+        <label class="sw" id="swSubs">
+          <i aria-hidden="true"></i>
+          <span>Субтитры (RU / EN)
+            <small>Скачать и встроить дорожку субтитров</small></span>
         </label>
         <label class="sw" id="swList" style="display:none">
           <i aria-hidden="true"></i>
@@ -495,7 +541,7 @@ function api(path, body, timeoutMs){
 }
 
 let info = null, mode = 'video', quality = null, ready = false;
-let compat = false, wholeList = false;
+let compat = false, wholeList = false, subs = false;
 
 const esc = s => String(s).replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -561,6 +607,13 @@ function fmtViews(n){
       setTimeout(() => { const b = $('#boot'); if(b) b.remove(); }, 620);
       api('/api/config').then(c => {
         $('#dir').value = c.outputDir || '';
+        $('#proxy').value = c.proxy || '';
+        $('#browserCookies').value = c.browserCookies || 'none';
+        $('#playerClient').value = c.playerClient || 'android,web';
+        if(c.downloadSubs){
+          subs = true;
+          $('#swSubs').classList.add('on');
+        }
         $('#ver').innerHTML = c.ytdlpVersion
           ? 'Установлена версия yt-dlp <code>' + esc(c.ytdlpVersion) + '</code>. ' +
             'Если YouTube перестал отдавать видео — обновите её.'
@@ -580,10 +633,33 @@ $('#gear').onclick = () => {
   const open = $('#settings').classList.toggle('on');
   $('#gear').classList.toggle('spun', open);
 };
+$('#pickDir').onclick = () => {
+  const b = $('#pickDir');
+  b.disabled = true;
+  api('/api/pickDir', {}).then(r => {
+    if(r && r.dir){
+      $('#dir').value = r.dir;
+      toast('Папка выбрана: ' + r.dir);
+    }
+  }).finally(() => { b.disabled = false; });
+};
 $('#saveDir').onclick = () => api('/api/setOutput', {dir: $('#dir').value})
   .then(r => r.error ? banner(r.error, 'err')
                      : (banner(''), toast('Папка сохранена')));
 $('#openDir').onclick = () => api('/api/reveal', {});
+$('#saveNet').onclick = () => {
+  const b = $('#saveNet'), old = b.textContent;
+  b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+  api('/api/setNetwork', {
+    proxy: $('#proxy').value.trim(),
+    browserCookies: $('#browserCookies').value,
+    playerClient: $('#playerClient').value,
+    downloadSubs: subs
+  }).then(r => {
+    if(r.error) banner(r.error, 'err');
+    else toast('Настройки сети сохранены');
+  }).finally(() => { b.disabled = false; b.textContent = old; });
+};
 $('#upd').onclick = () => {
   const b = $('#upd'), old = b.textContent;
   b.disabled = true; b.innerHTML = '<span class="spin"></span>';
@@ -682,6 +758,11 @@ function renderOpts(){
         tip: compat && !v.avc
           ? 'H.264 для этого разрешения нет — будет выбран ближайший кодек' : ''}))
     : info.audio.map(a => {
+        if(a === 0){
+          return {v: 0, t: 'Оригинал (без потерь)',
+            s: 'лучшее', flag: false,
+            tip: 'Исходный поток YouTube (M4A/Opus) без перекодирования в MP3 — скачивается быстрее'};
+        }
         const over = info.sourceAbr && a > info.sourceAbr + 8;
         return {v: a, t: a + ' kbps',
           s: a >= 320 ? 'макс' : a >= 192 ? 'высокое' : a <= 96 ? 'компактно' : '',
@@ -727,6 +808,11 @@ $('#swCompat').onclick = e => {
   $('#swCompat').classList.toggle('on', compat);
   if(info) renderOpts();
 };
+$('#swSubs').onclick = e => {
+  e.preventDefault();
+  subs = !subs;
+  $('#swSubs').classList.toggle('on', subs);
+};
 $('#swList').onclick = e => {
   e.preventDefault();
   wholeList = !wholeList;
@@ -737,13 +823,18 @@ $('#swList').onclick = e => {
 
 $('#go').onclick = () => {
   if(!info || quality === null) return toast('Сначала найдите видео');
+  if('Notification' in window && Notification.permission === 'default'){
+    try { Notification.requestPermission(); } catch(e) {}
+  }
   api('/api/download', {
     url: wholeList ? info.originalUrl : info.webpage,
     mode, quality, compat, playlist: wholeList,
+    subs: subs,
     title: wholeList ? info.playlist.title : info.title,
     thumb: info.thumbnail
   }).then(r => r.error ? banner(r.error, 'err') : null);
-  toast(mode === 'video' ? 'Загрузка видео начата' : 'Загрузка MP3 начата');
+  toast(mode === 'video' ? 'Загрузка видео начата'
+       : (quality === 0 ? 'Загрузка оригинального аудио начата' : 'Загрузка MP3 начата'));
 };
 
 /* ───────── live speed ─────────
@@ -818,11 +909,26 @@ const I_FOLDER = '<svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2
 const I_X = '<svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>';
 const I_LOG = '<svg viewBox="0 0 24 24"><path d="M4 4h16v2H4V4zm0 5h16v2H4V9zm0 5h11v2H4v-2zm0 5h11v2H4v-2z"/></svg>';
 
+const completedNotified = new Set();
+function notifyCompletion(j){
+  if(j.status === 'done' && !completedNotified.has(j.id)){
+    completedNotified.add(j.id);
+    if('Notification' in window && Notification.permission === 'granted'){
+      try {
+        new Notification('YT Studio: Загрузка завершена', {
+          body: (j.title || 'Видео') + (j.warn ? ' (' + j.warn + ')' : ''),
+          icon: j.thumb || undefined
+        });
+      } catch(e) {}
+    }
+  }
+}
+
 function statusLine(j){
   const out = [];
   const kind = j.mode === 'audio'
-    ? 'MP3 ' + j.quality + ' kbps'
-    : 'MP4 ' + j.quality + 'p' + (j.compat ? ' · H.264' : '');
+    ? (j.quality === 0 ? 'Оригинал аудио' : 'MP3 ' + j.quality + ' kbps')
+    : 'MP4 ' + j.quality + 'p' + (j.compat ? ' · H.264' : '') + (j.subs ? ' · Субтитры' : '');
   out.push(esc(kind));
   if(j.total) out.push(esc(j.index + '/' + j.total));
   if(j.acodec) out.push('звук ' + esc(j.acodec));
@@ -847,107 +953,130 @@ function statusLine(j){
 
 let lastTick = {};
 
-function refresh(){
-  api('/api/jobs').then(list => {
-    if(!Array.isArray(list)) return;
-    const q = $('#queue');
-    if(!list.length){ q.innerHTML = ''; return; }
+function renderJobs(list){
+  if(!Array.isArray(list)) return;
+  const q = $('#queue');
+  if(!list.length){ q.innerHTML = ''; return; }
 
-    if(!q.querySelector('.qhead')){
-      q.innerHTML =
-        '<div class="qhead"><span>Загрузки</span><span class="count" id="qcount"></span>' +
-        '<button id="clr">Очистить завершённые</button></div>' +
-        '<div id="items" style="display:flex;flex-direction:column;gap:12px"></div>';
-      $('#clr').onclick = () => api('/api/clear', {});
+  if(!q.querySelector('.qhead')){
+    q.innerHTML =
+      '<div class="qhead"><span>Загрузки</span><span class="count" id="qcount"></span>' +
+      '<button id="clr">Очистить завершённые</button></div>' +
+      '<div id="items" style="display:flex;flex-direction:column;gap:12px"></div>';
+    $('#clr').onclick = () => api('/api/clear', {});
+  }
+  const active = list.filter(j => j.status === 'running' || j.status === 'queued').length;
+  $('#qcount').textContent = active ? active + ' в работе' : 'готово';
+  const items = $('#items');
+
+  list.slice().reverse().forEach(j => {
+    notifyCompletion(j);
+
+    let el = items.querySelector('[data-id="' + j.id + '"]');
+    if(!el){
+      el = document.createElement('div');
+      el.className = 'card job';
+      el.dataset.id = j.id;
+      el.innerHTML =
+        '<img class="jt"' + (j.thumb ? ' src="' + esc(j.thumb) +
+          '" referrerpolicy="no-referrer"' : '') + ' alt="">' +
+        '<div class="info"><div class="nm"></div><div class="st"></div></div>' +
+        '<div class="spd"><span class="pulse"></span>' +
+          '<b class="num">0</b><i class="unit">КБ/с</i></div>' +
+        '<svg class="spark" viewBox="0 0 82 34" preserveAspectRatio="none"></svg>' +
+        '<div style="display:flex;align-items:center;gap:9px">' +
+          '<span class="pc"></span><span class="act"></span></div>' +
+        '<div class="bar"><i></i></div>' +
+        '<pre class="log"></pre>';
+      items.prepend(el);
     }
-    const active = list.filter(j => j.status === 'running' || j.status === 'queued').length;
-    $('#qcount').textContent = active ? active + ' в работе' : 'готово';
-    const items = $('#items');
 
-    list.slice().reverse().forEach(j => {
-      let el = items.querySelector('[data-id="' + j.id + '"]');
-      if(!el){
-        el = document.createElement('div');
-        el.className = 'card job';
-        el.dataset.id = j.id;
-        el.innerHTML =
-          '<img class="jt"' + (j.thumb ? ' src="' + esc(j.thumb) +
-            '" referrerpolicy="no-referrer"' : '') + ' alt="">' +
-          '<div class="info"><div class="nm"></div><div class="st"></div></div>' +
-          '<div class="spd"><span class="pulse"></span>' +
-            '<b class="num">0</b><i class="unit">КБ/с</i></div>' +
-          '<svg class="spark" viewBox="0 0 82 34" preserveAspectRatio="none"></svg>' +
-          '<div style="display:flex;align-items:center;gap:9px">' +
-            '<span class="pc"></span><span class="act"></span></div>' +
-          '<div class="bar"><i></i></div>' +
-          '<pre class="log"></pre>';
-        items.prepend(el);
+    const done = j.status === 'done';
+    const bad = j.status === 'error' || j.status === 'cancelled';
+    el.classList.toggle('done', done && !j.warn);
+    el.classList.toggle('warn', !!(done && j.warn));
+    el.classList.toggle('error', bad);
+
+    el.querySelector('.nm').textContent = j.title || 'Без названия';
+    const st = el.querySelector('.st');
+    st.innerHTML = statusLine(j);
+    st.title = st.textContent;
+
+    el.querySelector('.bar i').style.width = Math.min(100, j.progress || 0) + '%';
+    el.querySelector('.pc').textContent =
+      done ? (j.warn ? '!' : '✓') : bad ? '—' : Math.round(j.progress || 0) + '%';
+
+    /* live speed: big animated readout + sparkline */
+    const spark = el.querySelector('.spark');
+    const spd = el.querySelector('.spd');
+    if(j.status === 'running'){
+      const bps = measureSpeed(j);
+      const anim = speedAnim[j.id] || (speedAnim[j.id] = {shown: bps, target: bps});
+      anim.target = bps;
+      spd.classList.toggle('on', bps > 0);
+      if(lastTick[j.id] !== j.tick){
+        lastTick[j.id] = j.tick;
+        pushSample(j.id, bps);
       }
+      const s = speedLog[j.id] || [];
+      if(s.length > 1){ spark.classList.add('on'); drawSpark(spark, s); }
+    }else{
+      spark.classList.remove('on');
+      spd.classList.remove('on');
+    }
 
-      const done = j.status === 'done';
-      const bad = j.status === 'error' || j.status === 'cancelled';
-      el.classList.toggle('done', done && !j.warn);
-      el.classList.toggle('warn', !!(done && j.warn));
-      el.classList.toggle('error', bad);
+    const want = done ? 'folder' : bad ? 'log' : 'cancel';
+    const act = el.querySelector('.act');
+    if(act.dataset.k !== want){
+      act.dataset.k = want;
+      act.innerHTML =
+        want === 'folder' ? '<button class="icb" title="Показать файл">' + I_FOLDER + '</button>'
+      : want === 'log'    ? '<button class="icb" title="Показать журнал">' + I_LOG + '</button>'
+      :                     '<button class="icb" title="Отменить">' + I_X + '</button>';
+      act.querySelector('.icb').onclick = () =>
+        want === 'folder' ? api('/api/reveal', {path: j.file})
+      : want === 'log'    ? el.querySelector('.log').classList.toggle('on')
+      :                     api('/api/cancel', {id: j.id});
+    }
 
-      el.querySelector('.nm').textContent = j.title || 'Без названия';
-      const st = el.querySelector('.st');
-      st.innerHTML = statusLine(j);
-      st.title = st.textContent;
+    const pre = el.querySelector('.log');
+    if(j.log && pre.textContent !== j.log) pre.textContent = j.log;
+  });
 
-      el.querySelector('.bar i').style.width = Math.min(100, j.progress || 0) + '%';
-      el.querySelector('.pc').textContent =
-        done ? (j.warn ? '!' : '✓') : bad ? '—' : Math.round(j.progress || 0) + '%';
-
-      /* live speed: big animated readout + sparkline */
-      const spark = el.querySelector('.spark');
-      const spd = el.querySelector('.spd');
-      if(j.status === 'running'){
-        const bps = measureSpeed(j);
-        const anim = speedAnim[j.id] || (speedAnim[j.id] = {shown: bps, target: bps});
-        anim.target = bps;
-        spd.classList.toggle('on', bps > 0);
-        if(lastTick[j.id] !== j.tick){
-          lastTick[j.id] = j.tick;
-          pushSample(j.id, bps);
-        }
-        const s = speedLog[j.id] || [];
-        if(s.length > 1){ spark.classList.add('on'); drawSpark(spark, s); }
-      }else{
-        spark.classList.remove('on');
-        spd.classList.remove('on');
-      }
-
-      const want = done ? 'folder' : bad ? 'log' : 'cancel';
-      const act = el.querySelector('.act');
-      if(act.dataset.k !== want){
-        act.dataset.k = want;
-        act.innerHTML =
-          want === 'folder' ? '<button class="icb" title="Показать файл">' + I_FOLDER + '</button>'
-        : want === 'log'    ? '<button class="icb" title="Показать журнал">' + I_LOG + '</button>'
-        :                     '<button class="icb" title="Отменить">' + I_X + '</button>';
-        act.querySelector('.icb').onclick = () =>
-          want === 'folder' ? api('/api/reveal', {path: j.file})
-        : want === 'log'    ? el.querySelector('.log').classList.toggle('on')
-        :                     api('/api/cancel', {id: j.id});
-      }
-
-      const pre = el.querySelector('.log');
-      if(j.log && pre.textContent !== j.log) pre.textContent = j.log;
-    });
-
-    items.querySelectorAll('.job').forEach(el => {
-      if(!list.some(j => j.id === el.dataset.id)){
-        const id = el.dataset.id;
-        delete speedLog[id]; delete lastTick[id];
-        delete byteMark[id]; delete speedAnim[id];
-        el.remove();
-      }
-    });
-  }).catch(() => {});
+  items.querySelectorAll('.job').forEach(el => {
+    if(!list.some(j => j.id === el.dataset.id)){
+      const id = el.dataset.id;
+      delete speedLog[id]; delete lastTick[id];
+      delete byteMark[id]; delete speedAnim[id];
+      el.remove();
+    }
+  });
 }
 
-setInterval(refresh, 450);
+function refresh(){
+  api('/api/jobs').then(renderJobs).catch(() => {});
+}
+
+function initSSE(){
+  if(!window.EventSource) return;
+  try {
+    const es = new EventSource('/api/events');
+    es.onmessage = e => {
+      try {
+        const list = JSON.parse(e.data);
+        if(Array.isArray(list)) renderJobs(list);
+      } catch(err) {}
+    };
+    es.onerror = () => {
+      es.close();
+      setTimeout(initSSE, 4000);
+    };
+  } catch(e) {}
+}
+
+initSSE();
+setInterval(refresh, 2500);
+refresh();
 </script>
 </body>
 </html>

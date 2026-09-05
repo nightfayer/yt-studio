@@ -26,6 +26,7 @@ BIN_DIR = os.path.join(APP_DIR, "bin")
 DOWNLOAD_DIR = os.path.join(APP_DIR, "downloads")
 TMP_ROOT = os.path.join(APP_DIR, ".tmp")
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+HISTORY_PATH = os.path.join(APP_DIR, "history.json")
 
 PORT_RANGE = range(8731, 8781)
 MAX_PARALLEL = 3
@@ -52,31 +53,41 @@ FFMPEG_SOURCES = [
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
 TOKEN = secrets.token_urlsafe(24)
 
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.3.0"
 
 setup_state = {"stage": "idle", "message": "", "done": False, "error": None,
                "ytdlpVersion": None, "appVersion": APP_VERSION}
-jobs = {}
-jobs_lock = threading.Lock()
-slots = threading.Semaphore(MAX_PARALLEL)
 
 
 # ---------------------------------------------------------------- config
 
+DEFAULT_CONFIG = {
+    "outputDir": DOWNLOAD_DIR,
+    "proxy": "",
+    "browserCookies": "none",
+    "playerClient": "android,web",
+    "downloadSubs": False,
+}
+
+
 def load_config():
+    cfg = dict(DEFAULT_CONFIG)
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-            if isinstance(cfg, dict):
-                return cfg
+            loaded = json.load(f)
+            if isinstance(loaded, dict):
+                cfg.update(loaded)
     except Exception:
         pass
-    return {"outputDir": DOWNLOAD_DIR}
+    return cfg
 
 
 def save_config(cfg):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 CONFIG = load_config()
@@ -90,6 +101,138 @@ def out_dir():
         d = DOWNLOAD_DIR
         os.makedirs(d, exist_ok=True)
     return d
+
+
+# ---------------------------------------------------------------- history
+
+def load_history():
+    try:
+        if os.path.exists(HISTORY_PATH):
+            with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+    except Exception:
+        pass
+    return []
+
+
+def save_history(history_list):
+    try:
+        with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(history_list[-50:], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------- jobs & state
+
+jobs = {}
+jobs_lock = threading.Lock()
+slots = threading.Semaphore(MAX_PARALLEL)
+
+# Preload persistent history into jobs
+for item in load_history():
+    if isinstance(item, dict) and "id" in item:
+        jobs[item["id"]] = item
+
+
+def public_job(j):
+    """Returns a serializable, safe copy of a job dictionary."""
+    return {k: v for k, v in j.items() if k != "proc"}
+
+
+def _persist_history_locked():
+    completed = [public_job(j) for j in jobs.values()
+                 if j.get("status") in ("done", "error", "cancelled")]
+    save_history(completed)
+
+
+def safe_update_job(jid, **kwargs):
+    with jobs_lock:
+        if jid not in jobs:
+            jobs[jid] = {"id": jid}
+        jobs[jid].update(kwargs)
+        if kwargs.get("status") in ("done", "error", "cancelled"):
+            _persist_history_locked()
+
+
+def safe_get_jobs():
+    with jobs_lock:
+        return [public_job(j) for j in jobs.values()]
+
+
+def safe_get_job(jid):
+    with jobs_lock:
+        j = jobs.get(jid)
+        return public_job(j) if j else None
+
+
+def safe_cancel_job(jid):
+    with jobs_lock:
+        j = jobs.get(jid)
+        if j:
+            j["status"] = "cancelled"
+            proc = j.get("proc")
+            if proc:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            _persist_history_locked()
+
+
+def safe_clear_jobs():
+    with jobs_lock:
+        to_del = [k for k, v in jobs.items()
+                  if v.get("status") in ("done", "error", "cancelled")]
+        for k in to_del:
+            del jobs[k]
+        _persist_history_locked()
+
+
+# ---------------------------------------------------------------- folder picker
+
+def pick_folder(initial_dir=None):
+    """Opens a native OS folder dialog without pip dependencies."""
+    init = initial_dir or out_dir()
+
+    # Try tkinter first (included in Python on Windows/macOS)
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(initialdir=init, title="Выберите папку сохранения YT Studio")
+        root.destroy()
+        if folder:
+            return os.path.normpath(folder)
+    except Exception:
+        pass
+
+    # Windows fallback: PowerShell FolderBrowserDialog
+    if IS_WIN:
+        try:
+            esc = init.replace("'", "''")
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$f.Description = 'Выберите папку сохранения YT Studio'; "
+                "$f.SelectedPath = '%s'; "
+                "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"
+                % esc
+            )
+            p = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                               capture_output=True, text=True, timeout=60,
+                               creationflags=NO_WINDOW)
+            lines = [l.strip() for l in p.stdout.splitlines() if l.strip()]
+            if lines and os.path.isdir(lines[-1]):
+                return os.path.normpath(lines[-1])
+        except Exception:
+            pass
+
+    return None
 
 
 # ---------------------------------------------------------------- setup
@@ -210,6 +353,24 @@ def update_ytdlp():
 
 # ---------------------------------------------------------------- probing
 
+def extra_network_args():
+    """Returns extra arguments for proxy, browser cookies, and throttling bypass."""
+    args = []
+    proxy = (CONFIG.get("proxy") or "").strip()
+    if proxy:
+        args += ["--proxy", proxy]
+
+    cookies = (CONFIG.get("browserCookies") or "none").strip().lower()
+    if cookies and cookies != "none":
+        args += ["--cookies-from-browser", cookies]
+
+    client = (CONFIG.get("playerClient") or "android,web").strip()
+    if client and client != "default":
+        args += ["--extractor-args", "youtube:player_client=" + client]
+
+    return args
+
+
 def run_json(args, timeout=75):
     """Runs yt-dlp and parses its JSON, with a hard time limit.
 
@@ -217,7 +378,7 @@ def run_json(args, timeout=75):
     running for minutes, which looks like a freeze.
     """
     cmd = [YTDLP, "--ignore-config", "--no-warnings",
-           "--socket-timeout", "15", "--retries", "2"] + args
+           "--socket-timeout", "15", "--retries", "2"] + extra_network_args() + args
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=timeout,
                            creationflags=NO_WINDOW)
@@ -292,10 +453,8 @@ def probe(url):
                       "label": "%dp%s" % (h, "60" if fps >= 50 else ""),
                       "avc": h in has_avc})
 
-    # MP3 is always re-encoded by ffmpeg, so every bitrate is technically
-    # available regardless of the source. We expose the full ladder and let the
-    # UI mark the values that exceed the source (no quality gain there).
-    audio = list(AUDIO_BITRATES)
+    # 0 = Original lossless audio without MP3 re-encoding
+    audio = [0] + list(AUDIO_BITRATES)
 
     return {
         "sourceAbr": round(best_abr) if best_abr else None,
@@ -336,7 +495,7 @@ def _num(s):
         return None
 
 
-def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir):
+def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False):
     base = [
         YTDLP, "--newline", "--no-warnings", "--no-mtime", "--ignore-config",
         "--windows-filenames", "--trim-filenames", "160",
@@ -345,7 +504,12 @@ def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir):
         "--progress-template", PROGRESS_TEMPLATE,
         "--print", "after_move:filepath",
         "-P", "home:" + out_dir(), "-P", "temp:" + tmp_dir,
-    ]
+    ] + extra_network_args()
+
+    if subs or CONFIG.get("downloadSubs"):
+        base += ["--write-subs", "--write-auto-subs", "--sub-langs", "ru.*,en.*",
+                 "--embed-subs"]
+
     if whole_playlist:
         base += ["--yes-playlist",
                  "-o", os.path.join("%(playlist_title,playlist|Playlist)s",
@@ -354,6 +518,10 @@ def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir):
         base += ["--no-playlist", "-o", "%(title)s.%(ext)s"]
 
     if mode == "audio":
+        # 0 = lossless extraction of original YouTube audio stream without re-encoding
+        if str(quality) in ("0", "original", "best"):
+            return base + ["-f", "bestaudio/best", "-x",
+                           "--embed-thumbnail", "--embed-metadata", url]
         return base + ["-f", "bestaudio/best", "-x", "--audio-format", "mp3",
                        "--audio-quality", "%dK" % int(quality),
                        "--embed-thumbnail", "--embed-metadata", url]
@@ -437,7 +605,7 @@ def verify_audio(job):
                            "воспроизводит (%s)" % (codec, str(e)[:120]))
 
 
-def apply_progress(job, line):
+def apply_progress(job_id, line):
     """One progress line -> live numbers + an honest single progress bar.
 
     A video download runs in two passes (video stream, then audio stream), so
@@ -452,59 +620,57 @@ def apply_progress(job, line):
     eta = _num(parts[5])
     vcodec = (parts[6] or "").strip()
 
-    job["speedBps"] = speed
-    job["etaSec"] = int(eta) if eta is not None else None
-    job["bytesDone"] = int(done) if done is not None else None
-    job["bytesTotal"] = int(total) if total is not None else None
-    job["tick"] = job.get("tick", 0) + 1
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return
 
-    pct = (done / total * 100.0) if (done is not None and total) else 0.0
-    pct = max(0.0, min(100.0, pct))
+        job["speedBps"] = speed
+        job["etaSec"] = int(eta) if eta is not None else None
+        job["bytesDone"] = int(done) if done is not None else None
+        job["bytesTotal"] = int(total) if total is not None else None
+        job["tick"] = job.get("tick", 0) + 1
 
-    if job["mode"] == "audio":
-        job["progress"] = pct * 0.85
-        job["stage"] = "Скачивание аудио"
-    elif vcodec and vcodec not in ("none", "NA", "None"):
-        job["progress"] = pct * 0.70
-        job["stage"] = "Скачивание видео"
-    else:
-        job["progress"] = 70 + pct * 0.22
-        job["stage"] = "Скачивание аудиодорожки"
+        pct = (done / total * 100.0) if (done is not None and total) else 0.0
+        pct = max(0.0, min(100.0, pct))
 
-    # In a playlist the bar reflects the whole queue, not the current item.
-    if job.get("total"):
-        idx = max(1, job.get("index") or 1)
-        job["progress"] = ((idx - 1) + job["progress"] / 100.0) / job["total"] * 100.0
+        if job["mode"] == "audio":
+            job["progress"] = pct * 0.85
+            job["stage"] = "Скачивание аудио"
+        elif vcodec and vcodec not in ("none", "NA", "None"):
+            job["progress"] = pct * 0.70
+            job["stage"] = "Скачивание видео"
+        else:
+            job["progress"] = 70 + pct * 0.22
+            job["stage"] = "Скачивание аудиодорожки"
 
-
-def _post(job, stage, pct):
-    """Post-processing stage: no download is running, so the live numbers go."""
-    job["stage"] = stage
-    job["speedBps"] = None
-    job["etaSec"] = None
-    if not job.get("total"):
-        job["progress"] = pct
+        # In a playlist the bar reflects the whole queue, not the current item.
+        if job.get("total"):
+            idx = max(1, job.get("index") or 1)
+            job["progress"] = ((idx - 1) + job["progress"] / 100.0) / job["total"] * 100.0
 
 
-def worker(job_id, url, mode, quality, compat, whole_playlist):
-    job = jobs[job_id]
+def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
     tmp_dir = os.path.join(TMP_ROOT, job_id)
     os.makedirs(tmp_dir, exist_ok=True)
-    job["stage"] = "Ожидание слота"
+    safe_update_job(job_id, stage="Ожидание слота")
 
     with slots:
-        if job["status"] == "cancelled":
+        with jobs_lock:
+            cur_st = jobs.get(job_id, {}).get("status")
+        if cur_st == "cancelled":
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
-        job["status"] = "running"
-        job["stage"] = "Подготовка"
+
+        safe_update_job(job_id, status="running", stage="Подготовка")
         log = []
         try:
-            p = subprocess.Popen(
-                build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                creationflags=NO_WINDOW)
-            job["proc"] = p
+            cmd = build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs)
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 creationflags=NO_WINDOW)
+            with jobs_lock:
+                if job_id in jobs:
+                    jobs[job_id]["proc"] = p
 
             for raw in p.stdout:
                 text = raw.decode("utf-8", "replace").rstrip("\r\n")
@@ -512,7 +678,7 @@ def worker(job_id, url, mode, quality, compat, whole_playlist):
                     continue
 
                 if text.startswith(PROG + "|"):
-                    apply_progress(job, text)
+                    apply_progress(job_id, text)
                     continue
 
                 log.append(text)
@@ -520,55 +686,71 @@ def worker(job_id, url, mode, quality, compat, whole_playlist):
 
                 item = ITEM_RE.search(text)
                 if item:
-                    job["index"] = int(item.group(1))
-                    job["total"] = int(item.group(2))
+                    safe_update_job(job_id, index=int(item.group(1)), total=int(item.group(2)))
                 elif "[Merger]" in text:
-                    _post(job, "Склейка видео и звука", 94)
+                    safe_update_job(job_id, stage="Склейка видео и звука", speedBps=None, etaSec=None)
+                    with jobs_lock:
+                        if not jobs.get(job_id, {}).get("total"):
+                            jobs[job_id]["progress"] = 94
                 elif "[ExtractAudio]" in text:
-                    _post(job, "Конвертация в MP3", 88)
+                    safe_update_job(job_id, stage="Извлечение аудио", speedBps=None, etaSec=None)
+                    with jobs_lock:
+                        if not jobs.get(job_id, {}).get("total"):
+                            jobs[job_id]["progress"] = 88
                 elif "[ThumbnailsConvertor]" in text or "[EmbedThumbnail]" in text:
-                    _post(job, "Добавление обложки", 96)
+                    safe_update_job(job_id, stage="Добавление обложки", speedBps=None, etaSec=None)
+                    with jobs_lock:
+                        if not jobs.get(job_id, {}).get("total"):
+                            jobs[job_id]["progress"] = 96
                 elif "[Metadata]" in text:
-                    _post(job, "Запись тегов", 98)
+                    safe_update_job(job_id, stage="Запись тегов", speedBps=None, etaSec=None)
+                    with jobs_lock:
+                        if not jobs.get(job_id, {}).get("total"):
+                            jobs[job_id]["progress"] = 98
+                elif "[EmbedSubtitle]" in text:
+                    safe_update_job(job_id, stage="Встраивание субтитров", speedBps=None, etaSec=None)
                 elif os.path.isabs(text) and os.path.exists(text):
-                    job["file"] = text
-                    job["files"] = job.get("files", 0) + 1
+                    with jobs_lock:
+                        if job_id in jobs:
+                            jobs[job_id]["file"] = text
+                            jobs[job_id]["files"] = jobs[job_id].get("files", 0) + 1
 
             p.wait()
-            job["log"] = "\n".join(log[-40:])
+            safe_update_job(job_id, log="\n".join(log[-40:]))
 
-            if job["status"] == "cancelled":
-                job["stage"] = "Отменено"
+            with jobs_lock:
+                st = jobs.get(job_id, {}).get("status")
+            if st == "cancelled":
+                safe_update_job(job_id, stage="Отменено")
             elif p.returncode == 0:
+                with jobs_lock:
+                    target_job = dict(jobs.get(job_id, {}))
                 if mode == "video" and not whole_playlist:
-                    verify_audio(job)
-                job.update(progress=100, stage="Завершено", status="done",
-                           speedBps=None, etaSec=None)
+                    verify_audio(target_job)
+                    safe_update_job(job_id, acodec=target_job.get("acodec"), warn=target_job.get("warn"))
+                safe_update_job(job_id, progress=100, stage="Завершено", status="done",
+                                speedBps=None, etaSec=None)
             else:
                 errs = [l for l in log if "ERROR" in l or "error" in l]
-                job.update(status="error", stage="Ошибка",
-                           error=(errs[-1] if errs else
-                                  (log[-1] if log else "неизвестная ошибка")))
+                err_msg = (errs[-1] if errs else (log[-1] if log else "неизвестная ошибка"))
+                safe_update_job(job_id, status="error", stage="Ошибка",
+                                error=err_msg.replace("ERROR: ", ""))
         except Exception as e:
-            job.update(status="error", stage="Ошибка", error=str(e),
-                       log="\n".join(log[-40:]))
+            safe_update_job(job_id, status="error", stage="Ошибка", error=str(e),
+                            log="\n".join(log[-40:]))
         finally:
-            job.pop("proc", None)
+            with jobs_lock:
+                if job_id in jobs:
+                    jobs[job_id].pop("proc", None)
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def sweep_temp():
-    shutil.rmtree(TMP_ROOT, ignore_errors=True)
-    for pat in ("*.part", "*.ytdl", "*.part-Frag*"):
-        for f in glob.glob(os.path.join(out_dir(), pat)):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
-
-
-def public_job(j):
-    return {k: v for k, v in j.items() if k != "proc"}
+    """Cleans only the isolated .tmp directory. Does NOT touch user downloads."""
+    try:
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- http
@@ -647,12 +829,55 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/setup":
             return self._send(200, setup_state)
+
         if path == "/api/config":
-            return self._send(200, {"outputDir": out_dir(),
-                                    "ytdlpVersion": setup_state["ytdlpVersion"]})
+            return self._send(200, {
+                "outputDir": out_dir(),
+                "proxy": CONFIG.get("proxy", ""),
+                "browserCookies": CONFIG.get("browserCookies", "none"),
+                "playerClient": CONFIG.get("playerClient", "android,web"),
+                "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
+                "ytdlpVersion": setup_state["ytdlpVersion"]
+            })
+
         if path == "/api/jobs":
-            with jobs_lock:
-                return self._send(200, [public_job(j) for j in jobs.values()])
+            return self._send(200, safe_get_jobs())
+
+        if path == "/api/events":
+            # Server-Sent Events (SSE) stream for real-time UI updates
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+
+            last_data = ""
+            pings = 0
+            while True:
+                current_jobs = safe_get_jobs()
+                dumped = json.dumps(current_jobs, ensure_ascii=False)
+                if dumped != last_data:
+                    last_data = dumped
+                    pings = 0
+                    msg = ("data: %s\n\n" % dumped).encode("utf-8")
+                    try:
+                        self.wfile.write(msg)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
+                else:
+                    pings += 1
+                    if pings >= 25:  # ~12 sec heartbeat ping
+                        pings = 0
+                        try:
+                            self.wfile.write(b": ping\n\n")
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError, OSError):
+                            break
+                time.sleep(0.45)
+            return
+
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -704,40 +929,40 @@ class Handler(BaseHTTPRequestHandler):
                        "quality": dl_quality,
                        "compat": bool(body.get("compat")),
                        "playlist": bool(body.get("playlist")),
+                       "subs": bool(body.get("subs", False)),
                        "thumb": body.get("thumb"), "progress": 0,
                        "stage": "В очереди", "status": "queued",
                        "file": None, "speedBps": None, "etaSec": None,
                        "bytesDone": None, "bytesTotal": None, "tick": 0,
                        "index": None, "total": None, "error": None, "log": "",
                        "warn": None, "acodec": None}
+
                 with jobs_lock:
                     jobs[jid] = job
+
                 threading.Thread(target=worker, args=(
                     jid, dl_url, job["mode"], job["quality"],
-                    job["compat"], job["playlist"]), daemon=True).start()
+                    job["compat"], job["playlist"], job["subs"]), daemon=True).start()
                 return self._send(200, public_job(job))
 
             if path == "/api/cancel":
-                j = jobs.get(str(body.get("id")))
-                if j:
-                    j["status"] = "cancelled"
-                    proc = j.get("proc")
-                    if proc:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                safe_cancel_job(str(body.get("id")))
                 return self._send(200, {"ok": True})
 
             if path == "/api/clear":
-                with jobs_lock:
-                    for k in [k for k, v in jobs.items()
-                              if v.get("status") in ("done", "error", "cancelled")]:
-                        del jobs[k]
+                safe_clear_jobs()
                 return self._send(200, {"ok": True})
 
             if path == "/api/update":
                 return self._send(200, update_ytdlp())
+
+            if path == "/api/pickDir":
+                picked = pick_folder(CONFIG.get("outputDir"))
+                if picked:
+                    CONFIG["outputDir"] = picked
+                    save_config(CONFIG)
+                    return self._send(200, {"dir": picked})
+                return self._send(200, {"dir": None})
 
             if path == "/api/reveal":
                 target = body.get("path") or out_dir()
@@ -772,6 +997,18 @@ class Handler(BaseHTTPRequestHandler):
                 save_config(CONFIG)
                 return self._send(200, {"outputDir": d})
 
+            if path == "/api/setNetwork":
+                if "proxy" in body:
+                    CONFIG["proxy"] = str(body["proxy"]).strip()
+                if "browserCookies" in body:
+                    CONFIG["browserCookies"] = str(body["browserCookies"]).strip()
+                if "playerClient" in body:
+                    CONFIG["playerClient"] = str(body["playerClient"]).strip()
+                if "downloadSubs" in body:
+                    CONFIG["downloadSubs"] = bool(body["downloadSubs"])
+                save_config(CONFIG)
+                return self._send(200, {"ok": True})
+
             self._send(404, {"error": "not found"})
         except subprocess.TimeoutExpired:
             self._send(504, {"error": "yt-dlp не ответил вовремя"})
@@ -798,7 +1035,7 @@ def main():
     srv, port = bind_server()
     url = "http://127.0.0.1:%d/" % port
     print("=" * 58)
-    print("  YT Studio")
+    print("  YT Studio v%s" % APP_VERSION)
     print("  %s" % url)
     print("  Закройте это окно, чтобы остановить сервер.")
     print("=" * 58)
@@ -808,13 +1045,14 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        for j in list(jobs.values()):
-            proc = j.get("proc")
-            if proc:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+        with jobs_lock:
+            for j in list(jobs.values()):
+                proc = j.get("proc")
+                if proc:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         sweep_temp()
 
 

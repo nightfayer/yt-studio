@@ -4,6 +4,7 @@ bin/
 # user data
 downloads/
 config.json
+history.json
 .tmp/
 
 # python
