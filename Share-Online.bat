@@ -21,7 +21,15 @@ if defined FOUND_PORT (
     echo [!] ВНИМАНИЕ: YT Studio сейчас не запущена.
     echo     Не забудьте запустить Start.bat, чтобы видео и интерфейс работали!
 )
-echo Подключение туннеля к YT Studio (порт %PORT%)...
+for /f "tokens=*" %%I in ('python -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()" 2^>nul') do set "LOCAL_IP=%%I"
+if defined LOCAL_IP (
+    echo.
+    echo [СОВЕТ] Если телефон подключен к тому же домашнему Wi-Fi,
+    echo         туннель не нужен! Откройте прямо на телефоне:
+    echo         http://%LOCAL_IP%:%PORT%/
+    echo.
+)
+echo Подключение туннеля через Cloudflare (для доступа вне дома)...
 echo.
 echo Через несколько секунд появится ссылка вида:
 echo https://xxxx.trycloudflare.com

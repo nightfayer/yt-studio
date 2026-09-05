@@ -379,6 +379,10 @@
       <p>Видео в любом качестве · MP3 до 320 kbps</p>
     </div>
     <div class="hbtns">
+      <button class="btn sec" id="lanLink" style="display:none;font-size:12px;padding:6px 12px;text-decoration:none;border-radius:10px" title="Открыть с телефона в домашней сети">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor;margin-right:4px"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
+        <span id="lanLinkText">Телефон (Wi-Fi)</span>
+      </button>
       <button class="gear" id="gear" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5zm7.4-2.1a7.9 7.9 0 0 0 0-2.8l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.4-1.4L14.2 2H9.8l-.4 2.6a7.6 7.6 0 0 0-2.4 1.4l-2.4-1-2 3.4 2 1.6a7.9 7.9 0 0 0 0 2.8l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.4 1.4l.4 2.8h4.4l.4-2.8a7.6 7.6 0 0 0 2.4-1.4l2.4 1 2-3.4z"/></svg>
       </button>
@@ -398,6 +402,10 @@
     <div class="banner" id="banner" role="status" aria-live="polite"></div>
 
     <div id="settings">
+      <div class="sect" id="lanSect" style="display:none">
+        <div class="lbl">Доступ со смартфона (домашний Wi-Fi)</div>
+        <div class="hint" id="lanHint" style="font-size:13px;line-height:1.5;color:var(--text)"></div>
+      </div>
       <div class="sect">
         <div class="lbl">Папка сохранения</div>
         <div class="row">
@@ -611,8 +619,23 @@ function fmtViews(n){
           ? 'Установлена версия yt-dlp <code>' + esc(c.ytdlpVersion) + '</code>. ' +
             'Если YouTube перестал отдавать видео — обновите её.'
           : 'Версия yt-dlp неизвестна.';
-      });
-      $('#url').focus();
+        if(c.lanUrl){
+          const isLocal = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+          if(isLocal){
+            $('#lanLink').style.display = 'inline-flex';
+            $('#lanLink').onclick = () => {
+              if(navigator.clipboard && navigator.clipboard.writeText){
+                navigator.clipboard.writeText(c.lanUrl);
+                toast('Ссылка для телефона скопирована: ' + c.lanUrl);
+              } else {
+                prompt('Адрес для телефона (Wi-Fi):', c.lanUrl);
+              }
+            };
+          }
+          $('#lanSect').style.display = 'block';
+          $('#lanHint').innerHTML = 'Откройте на телефоне (в домашней сети Wi-Fi): <b style="color:var(--a3)">' + esc(c.lanUrl) + '</b><br><small style="color:var(--muted)">Никаких туннелей не требуется, файлы скачиваются на максимальной скорости домашнего роутера.</small>';
+        }
+        $('#url').focus();
       return;
     }
     if(s.stage === 'yt-dlp') $('#bootT').textContent = 'Загрузка yt-dlp';

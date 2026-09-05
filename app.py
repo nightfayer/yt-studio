@@ -889,12 +889,25 @@ class Handler(BaseHTTPRequestHandler):
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
             pass
 
-    # -- security: loopback or cloudflare tunnel, token-gated API, Lax cookie
+    @staticmethod
+    def _is_private_ip(host):
+        parts = host.split(".")
+        if len(parts) == 4 and all(p.isdigit() for p in parts):
+            a, b = int(parts[0]), int(parts[1])
+            if a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168) or a == 127:
+                return True
+        return False
+
+    # -- security: loopback, LAN, or cloudflare tunnel, token-gated API, Lax cookie
     def _host_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0].lower()
-        return (host in ("127.0.0.1", "localhost", "[::1]", "::1") or
-                host.endswith(".trycloudflare.com") or
-                host.endswith(".cloudflareaccess.com"))
+        if host in ("127.0.0.1", "localhost", "[::1]", "::1"):
+            return True
+        if host.endswith(".trycloudflare.com") or host.endswith(".cloudflareaccess.com"):
+            return True
+        if self._is_private_ip(host):
+            return True
+        return False
 
     def _token_ok(self):
         if self.headers.get("X-YTS-Token") == TOKEN:
@@ -919,6 +932,9 @@ class Handler(BaseHTTPRequestHandler):
         if re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$", origin):
             return True
         if origin.endswith(".trycloudflare.com") or origin.endswith(".cloudflareaccess.com"):
+            return True
+        m = re.match(r"^https?://([^:/]+)(:\d+)?$", origin)
+        if m and self._is_private_ip(m.group(1)):
             return True
         return False
 
@@ -1008,12 +1024,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, setup_state)
 
         if path == "/api/config":
+            local_ip = get_local_ip()
+            port = self.server.server_address[1]
             return self._send(200, {
                 "outputDir": out_dir(),
                 "browserCookies": CONFIG.get("browserCookies", "none"),
                 "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
                 "dpiBypass": bool(CONFIG.get("dpiBypass", True)),
-                "ytdlpVersion": setup_state["ytdlpVersion"]
+                "ytdlpVersion": setup_state["ytdlpVersion"],
+                "lanUrl": ("http://%s:%s/" % (local_ip, port)) if local_ip != "127.0.0.1" else None
             })
 
         if path == "/api/jobs":
@@ -1206,11 +1225,22 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": str(e)})
 
 
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 def bind_server():
     last = None
     for port in PORT_RANGE:
         try:
-            return ThreadingHTTPServer(("127.0.0.1", port), Handler), port
+            return ThreadingHTTPServer(("0.0.0.0", port), Handler), port
         except OSError as e:
             last = e
     raise SystemExit("Не удалось занять ни один порт %d-%d: %s"
@@ -1225,12 +1255,16 @@ def main():
         threading.Thread(target=ensure_dpi_proxy, daemon=True).start()
 
     srv, port = bind_server()
+    local_ip = get_local_ip()
     url = "http://127.0.0.1:%d/" % port
-    print("=" * 58)
+    lan_url = "http://%s:%d/" % (local_ip, port) if local_ip != "127.0.0.1" else None
+    print("=" * 62)
     print("  YT Studio v%s" % APP_VERSION)
-    print("  %s" % url)
+    print("  Локально (этот ПК):          %s" % url)
+    if lan_url:
+        print("  С телефона (домашний Wi-Fi): %s" % lan_url)
     print("  Закройте это окно, чтобы остановить сервер.")
-    print("=" * 58)
+    print("=" * 62)
     threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
         srv.serve_forever()
