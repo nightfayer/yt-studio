@@ -1,3 +1,8 @@
 {
-  "outputDir": "C:\\Users\\NightWalker\\Desktop\\yt\\downloads"
+  "outputDir": "C:\\Users\\NightWalker\\Desktop\\yt\\downloads",
+  "proxy": "",
+  "browserCookies": "none",
+  "playerClient": "android,web",
+  "downloadSubs": false,
+  "dpiBypass": true
 }

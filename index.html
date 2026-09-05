@@ -411,9 +411,16 @@
       </div>
       <div class="sect">
         <div class="lbl">Сеть и обход замедления</div>
+        <div class="row" style="margin-bottom:10px">
+          <label class="sw on" id="swDpi" style="flex:1">
+            <i aria-hidden="true"></i>
+            <span>Встроенное ускорение YouTube (DPI Bypass)
+              <small>Фрагментация ClientHello для обхода замедления ТСПУ/DPI без сторонних VPN</small></span>
+          </label>
+        </div>
         <div class="row">
           <div class="field" style="flex:1;min-width:220px">
-            <input type="text" id="proxy" placeholder="Прокси: http://127.0.0.1:10809 или socks5://..." style="padding-left:16px">
+            <input type="text" id="proxy" placeholder="Свой прокси (опционально): http://127.0.0.1:10809 или socks5://..." style="padding-left:16px">
           </div>
         </div>
         <div class="row" style="margin-top:8px">
@@ -541,7 +548,7 @@ function api(path, body, timeoutMs){
 }
 
 let info = null, mode = 'video', quality = null, ready = false;
-let compat = false, wholeList = false, subs = false;
+let compat = false, wholeList = false, subs = false, dpiBypass = true;
 
 const esc = s => String(s).replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -614,6 +621,8 @@ function fmtViews(n){
           subs = true;
           $('#swSubs').classList.add('on');
         }
+        dpiBypass = c.dpiBypass !== false;
+        $('#swDpi').classList.toggle('on', dpiBypass);
         $('#ver').innerHTML = c.ytdlpVersion
           ? 'Установлена версия yt-dlp <code>' + esc(c.ytdlpVersion) + '</code>. ' +
             'Если YouTube перестал отдавать видео — обновите её.'
@@ -632,6 +641,11 @@ function fmtViews(n){
 $('#gear').onclick = () => {
   const open = $('#settings').classList.toggle('on');
   $('#gear').classList.toggle('spun', open);
+};
+$('#swDpi').onclick = e => {
+  e.preventDefault();
+  dpiBypass = !dpiBypass;
+  $('#swDpi').classList.toggle('on', dpiBypass);
 };
 $('#pickDir').onclick = () => {
   const b = $('#pickDir');
@@ -654,7 +668,8 @@ $('#saveNet').onclick = () => {
     proxy: $('#proxy').value.trim(),
     browserCookies: $('#browserCookies').value,
     playerClient: $('#playerClient').value,
-    downloadSubs: subs
+    downloadSubs: subs,
+    dpiBypass: dpiBypass
   }).then(r => {
     if(r.error) banner(r.error, 'err');
     else toast('Настройки сети сохранены');
