@@ -644,6 +644,7 @@ function fmtViews(n){
       });
       return;
     }
+    if(s.stage === 'ciadpi') $('#bootT').textContent = 'Загрузка ByeDPI';
     if(s.stage === 'yt-dlp') $('#bootT').textContent = 'Загрузка yt-dlp';
     if(s.stage === 'ffmpeg') $('#bootT').textContent = 'Загрузка FFmpeg';
     setTimeout(poll, 500);
@@ -1056,26 +1057,35 @@ function renderJobs(list){
       spd.classList.remove('on');
     }
 
-    const want = done ? 'done' : bad ? 'log' : 'cancel';
+    const want = done ? 'done' : bad ? 'log' : 'running';
     const act = el.querySelector('.act');
     if(act.dataset.k !== want){
       act.dataset.k = want;
-      act.innerHTML =
-        want === 'done' ? '<a href="/api/download?id=' + encodeURIComponent(j.id) + '" class="icb" title="Скачать файл на устройство" download>' + I_DL + '</a>' +
-                          '<button class="icb rev-btn" title="Показать файл в проводнике">' + I_FOLDER + '</button>'
-      : want === 'log'  ? '<button class="icb log-btn" title="Показать журнал">' + I_LOG + '</button>'
-      :                   '<button class="icb cancel-btn" title="Отменить">' + I_X + '</button>';
+      let btns = '';
       if(want === 'done'){
-        act.querySelector('.rev-btn').onclick = () => api('/api/reveal', {path: j.file});
-      }else if(want === 'log'){
-        act.querySelector('.log-btn').onclick = () => el.querySelector('.log').classList.toggle('on');
-      }else{
-        act.querySelector('.cancel-btn').onclick = () => api('/api/cancel', {id: j.id});
+        btns = '<a href="/api/download?id=' + encodeURIComponent(j.id) + '" class="icb" title="Скачать файл на устройство" download>' + I_DL + '</a>' +
+               '<button class="icb rev-btn" title="Показать файл в проводнике">' + I_FOLDER + '</button>' +
+               '<button class="icb log-btn" title="Показать журнал">' + I_LOG + '</button>';
+      } else if(want === 'running'){
+        btns = '<button class="icb cancel-btn" title="Отменить">' + I_X + '</button>' +
+               '<button class="icb log-btn" title="Показать журнал">' + I_LOG + '</button>';
+      } else {
+        btns = '<button class="icb log-btn" title="Показать журнал">' + I_LOG + '</button>';
       }
+      act.innerHTML = btns;
+      const revBtn = act.querySelector('.rev-btn');
+      if(revBtn) revBtn.onclick = () => api('/api/reveal', {path: j.file});
+      const cancelBtn = act.querySelector('.cancel-btn');
+      if(cancelBtn) cancelBtn.onclick = () => api('/api/cancel', {id: j.id});
+      const logBtn = act.querySelector('.log-btn');
+      if(logBtn) logBtn.onclick = () => el.querySelector('.log').classList.toggle('on');
     }
 
     const pre = el.querySelector('.log');
-    if(j.log && pre.textContent !== j.log) pre.textContent = j.log;
+    if(j.log && pre.textContent !== j.log){
+      pre.textContent = j.log;
+      if(pre.classList.contains('on')) pre.scrollTop = pre.scrollHeight;
+    }
   });
 
   items.querySelectorAll('.job').forEach(el => {

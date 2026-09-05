@@ -5,6 +5,7 @@ Backend: Python stdlib only. Frontend: index.html (opens in your browser).
 Dependencies (yt-dlp, ffmpeg) are auto-installed into ./bin on first run.
 """
 
+import atexit
 import glob
 import io
 import json
@@ -60,11 +61,11 @@ else:
 
 # Several sources: the first one that answers wins.
 FFMPEG_SOURCES = [
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-    "ffmpeg-master-latest-win64-gpl.zip",
     "https://github.com/GyanD/codexffmpeg/releases/download/7.1/"
     "ffmpeg-7.1-essentials_build.zip",
     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+    "ffmpeg-master-latest-win64-gpl.zip",
 ]
 
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
@@ -142,6 +143,10 @@ def ensure_dpi_proxy():
                                            creationflags=NO_WINDOW)
             CIADPI_PORT = port
             time.sleep(0.4)
+            if CIADPI_PROC.poll() is not None:
+                CIADPI_PROC = None
+                CIADPI_PORT = None
+                return None
             return CIADPI_PORT
         except Exception:
             return None
@@ -159,12 +164,19 @@ def stop_dpi_proxy():
             CIADPI_PORT = None
 
 
+atexit.register(stop_dpi_proxy)
+
+
 def out_dir():
-    d = CONFIG.get("outputDir") or DOWNLOAD_DIR
+    d = CONFIG.get("outputDir")
+    if not d or not os.path.isabs(d) or not os.path.exists(os.path.dirname(d)):
+        d = DOWNLOAD_DIR
+        CONFIG["outputDir"] = DOWNLOAD_DIR
     try:
         os.makedirs(d, exist_ok=True)
     except Exception:
         d = DOWNLOAD_DIR
+        CONFIG["outputDir"] = DOWNLOAD_DIR
         os.makedirs(d, exist_ok=True)
     return d
 
@@ -354,6 +366,33 @@ def ensure_deps():
     try:
         os.makedirs(BIN_DIR, exist_ok=True)
 
+        if not os.path.exists(CIADPI) and CIADPI_URL:
+            try:
+                setup_state["stage"] = "ciadpi"
+                data = _fetch(CIADPI_URL, None, "Загрузка обхода DPI (ByeDPI)")
+                if CIADPI_URL.endswith(".zip"):
+                    with zipfile.ZipFile(io.BytesIO(data)) as z:
+                        for name in z.namelist():
+                            if os.path.basename(name).lower() in ("ciadpi.exe", "ciadpi"):
+                                with z.open(name) as src, open(CIADPI, "wb") as dst:
+                                    shutil.copyfileobj(src, dst)
+                                break
+                elif CIADPI_URL.endswith((".tar.gz", ".tgz")):
+                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                        for member in tar.getmembers():
+                            if os.path.basename(member.name).lower() in ("ciadpi.exe", "ciadpi"):
+                                src = tar.extractfile(member)
+                                if src:
+                                    with open(CIADPI, "wb") as dst:
+                                        shutil.copyfileobj(src, dst)
+                                    break
+                if not IS_WIN and os.path.exists(CIADPI):
+                    os.chmod(CIADPI, 0o755)
+            except Exception:
+                pass
+            if CONFIG.get("dpiBypass", True):
+                ensure_dpi_proxy()
+
         if not os.path.exists(YTDLP):
             setup_state["stage"] = "yt-dlp"
             _fetch(YTDLP_URL, YTDLP, "Загрузка yt-dlp")
@@ -386,31 +425,6 @@ def ensure_deps():
             else:
                 raise RuntimeError("FFmpeg не найден. Установите его пакетным "
                                    "менеджером, например: sudo apt install ffmpeg")
-
-        if not os.path.exists(CIADPI) and CIADPI_URL:
-            try:
-                setup_state["stage"] = "ciadpi"
-                data = _fetch(CIADPI_URL, None, "Загрузка обхода DPI (ByeDPI)")
-                if CIADPI_URL.endswith(".zip"):
-                    with zipfile.ZipFile(io.BytesIO(data)) as z:
-                        for name in z.namelist():
-                            if os.path.basename(name).lower() in ("ciadpi.exe", "ciadpi"):
-                                with z.open(name) as src, open(CIADPI, "wb") as dst:
-                                    shutil.copyfileobj(src, dst)
-                                break
-                elif CIADPI_URL.endswith((".tar.gz", ".tgz")):
-                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-                        for member in tar.getmembers():
-                            if os.path.basename(member.name).lower() in ("ciadpi.exe", "ciadpi"):
-                                src = tar.extractfile(member)
-                                if src:
-                                    with open(CIADPI, "wb") as dst:
-                                        shutil.copyfileobj(src, dst)
-                                    break
-                if not IS_WIN and os.path.exists(CIADPI):
-                    os.chmod(CIADPI, 0o755)
-            except Exception:
-                pass
 
         setup_state["ytdlpVersion"] = ytdlp_version()
         setup_state["stage"] = "ready"
@@ -596,7 +610,11 @@ def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False):
         YTDLP, "--newline", "--no-warnings", "--no-mtime", "--ignore-config",
         "--windows-filenames", "--trim-filenames", "160",
         "--ffmpeg-location", BIN_DIR,
-        "--concurrent-fragments", frag_count, "--retries", "10",
+        "--socket-timeout", "20",
+        "--retries", "5",
+        "--fragment-retries", "10",
+        "--file-access-retries", "3",
+        "--concurrent-fragments", frag_count,
         "--progress-template", PROGRESS_TEMPLATE,
         "--print", "after_move:filepath",
         "-P", "home:" + out_dir(), "-P", "temp:" + tmp_dir,
@@ -759,7 +777,7 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
 
-        safe_update_job(job_id, status="running", stage="Подготовка")
+        safe_update_job(job_id, status="running", stage="Подготовка к скачиванию...", log="")
         log = []
         try:
             cmd = build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs)
@@ -779,11 +797,36 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
                     continue
 
                 log.append(text)
-                del log[:-60]
+                del log[:-80]
 
+                # Real-time log update so user can inspect anytime
+                with jobs_lock:
+                    if job_id in jobs:
+                        jobs[job_id]["log"] = "\n".join(log[-40:])
+
+                tl = text.lower()
                 item = ITEM_RE.search(text)
                 if item:
                     safe_update_job(job_id, index=int(item.group(1)), total=int(item.group(2)))
+                elif "[youtube]" in text or "extracting url" in tl:
+                    if "downloading webpage" in tl:
+                        safe_update_job(job_id, stage="Получение страницы видео...")
+                    elif "player api" in tl or "android player" in tl or "web player" in tl:
+                        safe_update_job(job_id, stage="Запрос плеера YouTube...")
+                    elif "m3u8" in tl or "manifest" in tl or "mpd" in tl:
+                        safe_update_job(job_id, stage="Чтение манифеста потоков...")
+                    elif "retrying" in tl:
+                        safe_update_job(job_id, stage="Повтор подключения...")
+                    else:
+                        safe_update_job(job_id, stage="Подключение к YouTube...")
+                elif "[info]" in text and "downloading" in tl:
+                    safe_update_job(job_id, stage="Выбор форматов...")
+                elif "[download] destination" in tl:
+                    safe_update_job(job_id, stage="Начало скачивания...")
+                elif "[download] resuming" in tl:
+                    safe_update_job(job_id, stage="Возобновление скачивания...")
+                elif "retrying" in tl:
+                    safe_update_job(job_id, stage="Повтор попытки скачивания...")
                 elif "[Merger]" in text:
                     safe_update_job(job_id, stage="Склейка видео и звука", speedBps=None, etaSec=None)
                     with jobs_lock:
@@ -847,7 +890,15 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
                 file_ok = bool(saved_file and os.path.exists(saved_file) and os.path.getsize(saved_file) > 0)
 
                 errs = [l for l in log if "ERROR" in l or "error" in l]
-                err_msg = (errs[-1] if errs else (log[-1] if log else "неизвестная ошибка"))
+                raw_err = (errs[-1] if errs else (log[-1] if log else "неизвестная ошибка"))
+                err_clean = raw_err.replace("ERROR: ", "").strip()
+                if "could not copy chrome cookie database" in err_clean.lower() or "cookie database" in err_clean.lower():
+                    err_clean = "Не удалось прочитать cookies браузера: закройте браузер или положите cookies.txt в папку приложения"
+                elif "sign in to confirm" in err_clean.lower() or "not a bot" in err_clean.lower():
+                    err_clean = "YouTube требует подтвердить, что вы не бот: положите cookies.txt в папку приложения или выберите браузер в Настройках ⚙️"
+                elif "timed out" in err_clean.lower() or "10060" in err_clean:
+                    err_clean = "Тайм-аут соединения с серверами YouTube. Проверьте интернет или включите обход DPI в Настройках ⚙️"
+
                 is_sub_err = any("subtitle" in l.lower() or "timedtext" in l.lower() for l in errs)
 
                 if file_ok and is_sub_err:
@@ -858,8 +909,7 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
                                     speedBps=None, etaSec=None, warn=warn_msg,
                                     acodec=target_job.get("acodec"))
                 else:
-                    safe_update_job(job_id, status="error", stage="Ошибка",
-                                    error=err_msg.replace("ERROR: ", ""))
+                    safe_update_job(job_id, status="error", stage="Ошибка", error=err_clean)
         except Exception as e:
             safe_update_job(job_id, status="error", stage="Ошибка", error=str(e),
                             log="\n".join(log[-40:]))
