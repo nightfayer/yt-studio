@@ -9,6 +9,7 @@ import glob
 import io
 import json
 import os
+import platform
 import re
 import secrets
 import select
@@ -16,6 +17,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.parse
@@ -39,10 +41,22 @@ EXE = ".exe" if IS_WIN else ""
 YTDLP = os.path.join(BIN_DIR, "yt-dlp" + EXE)
 FFMPEG = os.path.join(BIN_DIR, "ffmpeg" + EXE)
 FFPROBE = os.path.join(BIN_DIR, "ffprobe" + EXE)
+CIADPI = os.path.join(BIN_DIR, "ciadpi" + EXE)
 
 YTDLP_URL = ("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
              if IS_WIN else
              "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
+
+if IS_WIN:
+    CIADPI_URL = "https://github.com/hufrea/byedpi/releases/download/v0.17.3/byedpi-17.3-x86_64-w64.zip"
+elif sys.platform == "darwin":
+    m = "aarch64" if "arm" in platform.machine().lower() else "x86_64"
+    CIADPI_URL = "https://github.com/hufrea/byedpi/releases/download/v0.17.3/byedpi-17.3-%s-macos.zip" % m
+elif sys.platform.startswith("linux"):
+    m = "aarch64" if "aarch64" in platform.machine().lower() else "x86_64"
+    CIADPI_URL = "https://github.com/hufrea/byedpi/releases/download/v0.17.3/byedpi-17.3-%s-linux.tar.gz" % m
+else:
+    CIADPI_URL = None
 
 # Several sources: the first one that answers wins.
 FFMPEG_SOURCES = [
@@ -99,159 +113,52 @@ CONFIG = load_config()
 
 # ---------------------------------------------------------------- dpi bypass proxy
 
-DPI_PROXY_PORT = None
-_dpi_proxy_server = None
-_dpi_proxy_lock = threading.Lock()
-
-
-class DpiBypassProxy:
-    """A lightweight local HTTP CONNECT proxy that fragments TLS ClientHello
-    packets to evade DPI (ТСПУ) inspection on YouTube / GoogleVideo endpoints."""
-
-    def __init__(self, host="127.0.0.1", port=0):
-        self.host = host
-        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_sock.bind((self.host, port))
-        self.server_sock.listen(128)
-        self.port = self.server_sock.getsockname()[1]
-        self.running = True
-
-    def start(self):
-        t = threading.Thread(target=self._listen_loop, daemon=True)
-        t.start()
-        return self.port
-
-    def stop(self):
-        self.running = False
-        try:
-            self.server_sock.close()
-        except Exception:
-            pass
-
-    def _listen_loop(self):
-        while self.running:
-            try:
-                client_sock, _ = self.server_sock.accept()
-                t = threading.Thread(target=self._handle_client,
-                                     args=(client_sock,), daemon=True)
-                t.start()
-            except Exception:
-                break
-
-    def _handle_client(self, client_sock):
-        remote_sock = None
-        try:
-            client_sock.settimeout(15)
-            header = b""
-            while b"\r\n\r\n" not in header and len(header) < 8192:
-                chunk = client_sock.recv(1024)
-                if not chunk:
-                    break
-                header += chunk
-
-            first_line = header.split(b"\r\n")[0].decode("utf-8", "ignore")
-            parts = first_line.split()
-            if len(parts) < 2:
-                return
-
-            is_connect = header.startswith(b"CONNECT")
-            if is_connect:
-                target = parts[1]
-                if target.startswith("[") and "]:" in target:
-                    remote_host, _, port_s = target[1:].partition("]:")
-                    remote_port = int(port_s)
-                elif ":" in target:
-                    remote_host, port_s = target.rsplit(":", 1)
-                    remote_port = int(port_s)
-                else:
-                    remote_host, remote_port = target, 443
-
-                remote_sock = socket.create_connection((remote_host, remote_port), timeout=15)
-                try:
-                    remote_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    client_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                except Exception:
-                    pass
-
-                client_sock.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-
-                client_sock.settimeout(20)
-                first_data = client_sock.recv(16384)
-                if not first_data:
-                    return
-
-                # TLS Handshake detection: 0x16 is TLS Handshake Record
-                # Fragmenting the ClientHello record splits the SNI across separate TCP packets!
-                if first_data[0] == 0x16 and len(first_data) > 5:
-                    # Send first 2 bytes (Record Type + Protocol Version)
-                    remote_sock.sendall(first_data[:2])
-                    time.sleep(0.002)  # Micro-pause ensures separate TCP segment with TCP_NODELAY
-                    remote_sock.sendall(first_data[2:])
-                else:
-                    remote_sock.sendall(first_data)
-
-                client_sock.settimeout(None)
-                remote_sock.settimeout(None)
-                self._pipe(client_sock, remote_sock)
-            else:
-                # Standard HTTP forward proxy fallback
-                parsed = urllib.parse.urlsplit(parts[1])
-                remote_host = parsed.hostname
-                remote_port = parsed.port or 80
-                if not remote_host:
-                    client_sock.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
-                    return
-                remote_sock = socket.create_connection((remote_host, remote_port), timeout=15)
-                remote_sock.sendall(header)
-                client_sock.settimeout(None)
-                remote_sock.settimeout(None)
-                self._pipe(client_sock, remote_sock)
-        except Exception:
-            pass
-        finally:
-            if client_sock:
-                try:
-                    client_sock.close()
-                except Exception:
-                    pass
-            if remote_sock:
-                try:
-                    remote_sock.close()
-                except Exception:
-                    pass
-
-    def _pipe(self, s1, s2):
-        socks = [s1, s2]
-        while self.running:
-            try:
-                r, _, x = select.select(socks, [], socks, 35)
-                if x or not r:
-                    break
-                for s in r:
-                    other = s2 if s is s1 else s1
-                    data = s.recv(32768)
-                    if not data:
-                        return
-                    other.sendall(data)
-            except Exception:
-                return
+CIADPI_PROC = None
+CIADPI_PORT = None
+CIADPI_LOCK = threading.Lock()
 
 
 def ensure_dpi_proxy():
-    global DPI_PROXY_PORT, _dpi_proxy_server
+    """Starts or returns the port of the local ByeDPI proxy."""
+    global CIADPI_PROC, CIADPI_PORT
     if not CONFIG.get("dpiBypass", True):
         return None
-    with _dpi_proxy_lock:
-        if _dpi_proxy_server and DPI_PROXY_PORT:
-            return DPI_PROXY_PORT
+    with CIADPI_LOCK:
+        if CIADPI_PROC and CIADPI_PROC.poll() is None and CIADPI_PORT:
+            return CIADPI_PORT
+        if not os.path.exists(CIADPI):
+            return None
+        # Allocate a free loopback port
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
         try:
-            proxy = DpiBypassProxy()
-            DPI_PROXY_PORT = proxy.start()
-            _dpi_proxy_server = proxy
-            return DPI_PROXY_PORT
+            cmd = [
+                CIADPI, "-i", "127.0.0.1", "-p", str(port),
+                "--split", "1", "--disorder", "3+s", "--mod-http=h,d",
+                "--auto=torst", "--tlsrec", "1+s"
+            ]
+            CIADPI_PROC = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL,
+                                           creationflags=NO_WINDOW)
+            CIADPI_PORT = port
+            time.sleep(0.4)
+            return CIADPI_PORT
         except Exception:
             return None
+
+
+def stop_dpi_proxy():
+    global CIADPI_PROC, CIADPI_PORT
+    with CIADPI_LOCK:
+        if CIADPI_PROC:
+            try:
+                CIADPI_PROC.kill()
+            except Exception:
+                pass
+            CIADPI_PROC = None
+            CIADPI_PORT = None
 
 
 def out_dir():
@@ -482,6 +389,31 @@ def ensure_deps():
                 raise RuntimeError("FFmpeg не найден. Установите его пакетным "
                                    "менеджером, например: sudo apt install ffmpeg")
 
+        if not os.path.exists(CIADPI) and CIADPI_URL:
+            try:
+                setup_state["stage"] = "ciadpi"
+                data = _fetch(CIADPI_URL, None, "Загрузка обхода DPI (ByeDPI)")
+                if CIADPI_URL.endswith(".zip"):
+                    with zipfile.ZipFile(io.BytesIO(data)) as z:
+                        for name in z.namelist():
+                            if os.path.basename(name).lower() in ("ciadpi.exe", "ciadpi"):
+                                with z.open(name) as src, open(CIADPI, "wb") as dst:
+                                    shutil.copyfileobj(src, dst)
+                                break
+                elif CIADPI_URL.endswith((".tar.gz", ".tgz")):
+                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                        for member in tar.getmembers():
+                            if os.path.basename(member.name).lower() in ("ciadpi.exe", "ciadpi"):
+                                src = tar.extractfile(member)
+                                if src:
+                                    with open(CIADPI, "wb") as dst:
+                                        shutil.copyfileobj(src, dst)
+                                    break
+                if not IS_WIN and os.path.exists(CIADPI):
+                    os.chmod(CIADPI, 0o755)
+            except Exception:
+                pass
+
         setup_state["ytdlpVersion"] = ytdlp_version()
         setup_state["stage"] = "ready"
         setup_state["message"] = "Готово"
@@ -523,7 +455,7 @@ def extra_network_args():
     elif CONFIG.get("dpiBypass", True):
         port = ensure_dpi_proxy()
         if port:
-            args += ["--proxy", "http://127.0.0.1:%d" % port, "--http-chunk-size", "10M"]
+            args += ["--proxy", "socks5://127.0.0.1:%d" % port, "--http-chunk-size", "10M"]
 
     cookies = (CONFIG.get("browserCookies") or "none").strip().lower()
     if cookies and cookies != "none":
@@ -1174,8 +1106,11 @@ class Handler(BaseHTTPRequestHandler):
                 if "downloadSubs" in body:
                     CONFIG["downloadSubs"] = bool(body["downloadSubs"])
                 if "dpiBypass" in body:
+                    old_dpi = CONFIG.get("dpiBypass", True)
                     CONFIG["dpiBypass"] = bool(body["dpiBypass"])
-                    if CONFIG["dpiBypass"]:
+                    if not CONFIG["dpiBypass"]:
+                        stop_dpi_proxy()
+                    elif not old_dpi:
                         ensure_dpi_proxy()
                 save_config(CONFIG)
                 return self._send(200, {"ok": True})
@@ -1226,12 +1161,7 @@ def main():
                         proc.kill()
                     except Exception:
                         pass
-        global _dpi_proxy_server
-        if _dpi_proxy_server:
-            try:
-                _dpi_proxy_server.stop()
-            except Exception:
-                pass
+        stop_dpi_proxy()
         sweep_temp()
 
 
