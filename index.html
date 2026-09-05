@@ -636,6 +636,7 @@ function fmtViews(n){
           $('#lanHint').innerHTML = 'Откройте на телефоне (в домашней сети Wi-Fi): <b style="color:var(--a3)">' + esc(c.lanUrl) + '</b><br><small style="color:var(--muted)">Никаких туннелей не требуется, файлы скачиваются на максимальной скорости домашнего роутера.</small>';
         }
         $('#url').focus();
+      });
       return;
     }
     if(s.stage === 'yt-dlp') $('#bootT').textContent = 'Загрузка yt-dlp';
