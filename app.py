@@ -445,19 +445,23 @@ def update_ytdlp():
 # ---------------------------------------------------------------- probing
 
 def extra_network_args():
-    """Returns extra arguments for DPI bypass, browser cookies, and 4K TV client."""
+    """Returns extra arguments for DPI bypass, cookies, and JS runtime."""
     args = []
     if CONFIG.get("dpiBypass", True):
         port = ensure_dpi_proxy()
         if port:
             args += ["--proxy", "socks5://127.0.0.1:%d" % port, "--http-chunk-size", "10M"]
 
-    cookies = (CONFIG.get("browserCookies") or "none").strip().lower()
-    if cookies and cookies != "none":
-        args += ["--cookies-from-browser", cookies]
+    cookies_file = os.path.join(APP_DIR, "cookies.txt")
+    if os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0:
+        args += ["--cookies", cookies_file]
+    else:
+        cookies = (CONFIG.get("browserCookies") or "none").strip().lower()
+        if cookies and cookies != "none":
+            args += ["--cookies-from-browser", cookies]
 
-    # Smart TV Embedded client is always used to bypass PO Token restriction and unlock 1080p/4K
-    args += ["--extractor-args", "youtube:player_client=tv_embedded"]
+    if shutil.which("node"):
+        args += ["--js-runtimes", "node"]
 
     return args
 
@@ -1021,9 +1025,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             local_ip = get_local_ip()
             port = self.server.server_address[1]
+            cookies_file = os.path.join(APP_DIR, "cookies.txt")
+            has_cookies = os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0
             return self._send(200, {
                 "outputDir": out_dir(),
                 "browserCookies": CONFIG.get("browserCookies", "none"),
+                "hasCookiesFile": has_cookies,
                 "downloadSubs": bool(CONFIG.get("downloadSubs", False)),
                 "dpiBypass": bool(CONFIG.get("dpiBypass", True)),
                 "ytdlpVersion": setup_state["ytdlpVersion"],

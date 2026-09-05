@@ -5,6 +5,7 @@ bin/
 downloads/
 config.json
 history.json
+cookies.txt
 .tmp/
 
 # python

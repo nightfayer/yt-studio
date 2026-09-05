@@ -428,7 +428,7 @@
         </div>
         <div class="row" style="margin-top:8px">
           <div style="flex:1;min-width:220px">
-            <label class="hint" style="margin:0 0 4px;display:block">Cookies браузера (для 18+ и приватных видео):</label>
+            <label class="hint" style="margin:0 0 4px;display:block">Cookies браузера (для 18+ и проверки на бота):</label>
             <select id="browserCookies" class="sel">
               <option value="none">Без cookies (по умолчанию)</option>
               <option value="chrome">Google Chrome</option>
@@ -438,6 +438,10 @@
               <option value="opera">Opera</option>
               <option value="vivaldi">Vivaldi</option>
             </select>
+            <div id="cookiesFileBadge" style="margin-top:7px;display:none;font-size:12px;color:var(--a3);font-weight:600">✓ Файл cookies.txt подключён (приоритет над браузером)</div>
+            <small style="display:block;margin-top:6px;color:var(--muted);font-size:11.5px;line-height:1.4">
+              Если YouTube требует подтвердить, что вы не бот, положите файл <code>cookies.txt</code> в папку приложения (экспортируется через расширение браузера) или полностью закройте браузер перед скачиванием.
+            </small>
           </div>
         </div>
         <div class="row" style="margin-top:10px">
@@ -609,6 +613,7 @@ function fmtViews(n){
       api('/api/config').then(c => {
         $('#dir').value = c.outputDir || '';
         $('#browserCookies').value = c.browserCookies || 'none';
+        if(c.hasCookiesFile) $('#cookiesFileBadge').style.display = 'block';
         if(c.downloadSubs){
           subs = true;
           $('#swSubs').classList.add('on');
@@ -719,7 +724,11 @@ $('#find').onclick = () => {
   api('/api/info', {url}, 100000).then(d => {
     stop();
     if(d.error){
-      banner(d.error, 'err');
+      let msg = d.error;
+      if(msg.includes('Sign in to confirm') || msg.includes('not a bot') || msg.includes('cookies-from-browser')){
+        msg = 'YouTube требует проверку на бота: положите файл cookies.txt в папку приложения или выберите браузер в Настройках ⚙️ (браузер должен быть закрыт).';
+      }
+      banner(msg, 'err');
       $('#preview').classList.remove('on');
       return;
     }
