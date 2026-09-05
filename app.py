@@ -605,7 +605,8 @@ def build_cmd(url, mode, quality, compat, whole_playlist, tmp_dir, subs=False):
     ] + extra_network_args()
 
     if subs or CONFIG.get("downloadSubs"):
-        base += ["--write-subs", "--write-auto-subs", "--sub-langs", "ru.*,en.*",
+        base += ["--no-abort-on-error", "--sleep-subtitles", "2",
+                 "--write-subs", "--write-auto-subs", "--sub-langs", "ru,en",
                  "--embed-subs"]
 
     if whole_playlist:
@@ -823,16 +824,44 @@ def worker(job_id, url, mode, quality, compat, whole_playlist, subs=False):
             elif p.returncode == 0:
                 with jobs_lock:
                     target_job = dict(jobs.get(job_id, {}))
+                warn_msg = target_job.get("warn")
+                sub_err = any(
+                    ("subtitle" in l.lower() or "timedtext" in l.lower()) and
+                    ("429" in l or "error" in l.lower() or "unable" in l.lower())
+                    for l in log
+                )
+                if sub_err and not warn_msg:
+                    warn_msg = "Субтитры недоступны (ограничение YouTube 429), видео сохранено"
+
                 if mode == "video" and not whole_playlist:
                     verify_audio(target_job)
-                    safe_update_job(job_id, acodec=target_job.get("acodec"), warn=target_job.get("warn"))
+                    if target_job.get("warn"):
+                        warn_msg = ((warn_msg + " | " if warn_msg else "") +
+                                    target_job.get("warn"))
+
                 safe_update_job(job_id, progress=100, stage="Завершено", status="done",
-                                speedBps=None, etaSec=None)
+                                speedBps=None, etaSec=None, warn=warn_msg,
+                                acodec=target_job.get("acodec"))
             else:
+                with jobs_lock:
+                    target_job = dict(jobs.get(job_id, {}))
+                saved_file = target_job.get("file")
+                file_ok = bool(saved_file and os.path.exists(saved_file) and os.path.getsize(saved_file) > 0)
+
                 errs = [l for l in log if "ERROR" in l or "error" in l]
                 err_msg = (errs[-1] if errs else (log[-1] if log else "неизвестная ошибка"))
-                safe_update_job(job_id, status="error", stage="Ошибка",
-                                error=err_msg.replace("ERROR: ", ""))
+                is_sub_err = any("subtitle" in l.lower() or "timedtext" in l.lower() for l in errs)
+
+                if file_ok and is_sub_err:
+                    if mode == "video" and not whole_playlist:
+                        verify_audio(target_job)
+                    warn_msg = target_job.get("warn") or "Субтитры недоступны (ограничение YouTube 429), видео сохранено"
+                    safe_update_job(job_id, progress=100, stage="Завершено", status="done",
+                                    speedBps=None, etaSec=None, warn=warn_msg,
+                                    acodec=target_job.get("acodec"))
+                else:
+                    safe_update_job(job_id, status="error", stage="Ошибка",
+                                    error=err_msg.replace("ERROR: ", ""))
         except Exception as e:
             safe_update_job(job_id, status="error", stage="Ошибка", error=str(e),
                             log="\n".join(log[-40:]))
