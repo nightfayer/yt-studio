@@ -1,20 +1,28 @@
-/* An explicit `display` in an author rule beats the user agent's [hidden],
-   so .export-log and .release-link stayed visible when hidden was set. */
+/* YT Studio Browser Extension - Popup Styles */
+
 [hidden] { display: none !important; }
 
 body {
-  width: 288px;
+  width: 300px;
   margin: 0;
-  padding: 14px;
-  background: #181a1c;
-  color: #f1f1f1;
-  font: 13px/1.45 "Segoe UI", Roboto, Arial, sans-serif;
+  padding: 16px;
+  background: #0b0f19;
+  color: #f1f5f9;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  box-sizing: border-box;
 }
 
 .head {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.head img {
+  border-radius: 8px;
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.45);
 }
 
 .titles {
@@ -24,12 +32,12 @@ body {
 }
 
 .titles b {
-  font-size: 14px;
-}
-
-.titles span {
-  color: #9aa0a6;
-  font-size: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #ffffff 0%, #00f2fe 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .subtitle {
@@ -38,35 +46,48 @@ body {
   gap: 8px;
 }
 
-.subtitle a {
-  color: #8ab4f8;
-  text-decoration: none;
+.subtitle span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.subtitle a:hover { text-decoration: underline; }
+.subtitle a {
+  color: #38bdf8;
+  font-size: 11px;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
 
-/* The update check used to be a full-width button under the status, which read
-   as the popup's main action. It is a refresh, so it is a 26px icon in the
-   header instead and the green release link keeps the visual weight. */
+.subtitle a:hover {
+  color: #00f2fe;
+  text-decoration: underline;
+}
+
 .icon-btn {
   flex: 0 0 auto;
   margin-left: auto;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #3c4043;
-  border-radius: 7px;
-  background: #222528;
-  color: #9aa0a6;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .icon-btn svg { width: 15px; height: 15px; display: block; }
 
-.icon-btn:hover { background: #2b2f33; color: #f1f1f1; }
+.icon-btn:hover {
+  background: rgba(0, 242, 254, 0.15);
+  border-color: rgba(0, 242, 254, 0.4);
+  color: #00f2fe;
+}
 
 .icon-btn:disabled { opacity: 0.5; cursor: default; }
 
@@ -76,88 +97,108 @@ body {
 
 .status {
   margin: 12px 0 0;
-  padding: 9px 11px;
+  padding: 8px 12px;
   border-radius: 8px;
-  background: #222528;
-  color: #c9cdd1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .status.update {
-  background: rgba(53, 212, 119, 0.12);
-  color: #35d477;
-  border: 1px solid rgba(53, 212, 119, 0.45);
+  background: rgba(0, 242, 254, 0.12);
+  color: #00f2fe;
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.15);
 }
 
 .status.error {
-  color: #ff8a80;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .release-link {
   display: block;
   margin-top: 10px;
-  padding: 9px 11px;
+  padding: 10px 12px;
   border-radius: 8px;
-  background: #35d477;
-  color: #08361d;
-  font-weight: 600;
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  color: #040915;
+  font-weight: 700;
+  font-size: 12px;
   text-align: center;
   text-decoration: none;
+  box-shadow: 0 4px 14px rgba(0, 242, 254, 0.35);
+  transition: all 0.2s ease;
 }
 
 .release-link:hover {
-  background: #4ade87;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 242, 254, 0.5);
 }
 
 .section {
-  margin-top: 12px;
-  padding: 10px 11px 11px;
-  border: 1px solid #2b2f33;
-  border-radius: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(0, 242, 254, 0.18);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(8px);
 }
 
 .section-head {
-  margin-bottom: 8px;
-  color: #9aa0a6;
+  margin-bottom: 10px;
+  color: #00f2fe;
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .setting + .setting {
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid #232629;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .setting-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
 }
 
 .setting-name {
   flex: 0 0 auto;
+  font-weight: 600;
 }
 
-/* The select takes the rest of the row rather than a fixed width: the longest
-   option is «Как у монитора (1440p)» and a 150px box cut it to «(144». */
 .setting-row select {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid #3c4043;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
-  background: #222528;
-  color: #f1f1f1;
+  background: #0f172a;
+  color: #f8fafc;
   font: inherit;
+  font-size: 12px;
   cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.setting-row select:focus {
+  border-color: #00f2fe;
+  outline: none;
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.3);
 }
 
 .setting-row.check {
   margin-top: 6px;
-  color: #c9cdd1;
-  font-size: 12px;
+  color: #94a3b8;
+  font-size: 11.5px;
   cursor: pointer;
 }
 
@@ -166,13 +207,13 @@ body {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: #35d477;
+  accent-color: #00f2fe;
   cursor: pointer;
 }
 
 .hint {
-  margin-top: 9px;
-  color: #7c8288;
+  margin-top: 10px;
+  color: #64748b;
   font-size: 11px;
   line-height: 1.35;
 }
@@ -181,18 +222,20 @@ body {
   display: block;
   width: 100%;
   margin-top: 10px;
-  padding: 7px 10px;
-  border: 1px solid #3c4043;
-  border-radius: 7px;
-  background: transparent;
-  color: #9aa0a6;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
   font-size: 12px;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .export-log:hover {
-  background: #222528;
-  color: #c9cdd1;
+  background: rgba(0, 242, 254, 0.1);
+  border-color: rgba(0, 242, 254, 0.3);
+  color: #00f2fe;
 }
 
 .export-log:disabled {

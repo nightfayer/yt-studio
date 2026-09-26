@@ -190,11 +190,11 @@
     ring.setAttribute('cy', '18');
     ring.setAttribute('r', '16.9');
     ring.setAttribute('fill', 'none');
-    ring.setAttribute('stroke', '#35d477');
+    ring.setAttribute('stroke', '#00f2fe');
     ring.setAttribute('stroke-width', '2.2');
     const arrows = document.createElementNS(namespace, 'path');
-    arrows.setAttribute('fill', '#35d477');
-    arrows.setAttribute('d', 'M10.8 5.53h14.4L18 18z M10.8 18h14.4L18 30.47z');
+    arrows.setAttribute('fill', '#00f2fe');
+    arrows.setAttribute('d', 'M18 23.5l-6.5-6.5h4V9.5h5v7.5h4L18 23.5z M10.5 26h15v2h-15z');
     svg.append(ring, arrows);
     return svg;
   }
@@ -213,14 +213,14 @@
     button.id = BUTTON_ID;
     button.type = 'button';
     button.dataset.ytsVariant = variant;
-    button.title = 'YTS (YT Studio)';
+    button.title = 'YT Studio — Скачать';
     button.setAttribute('aria-label', button.title);
     if (variant === 'shorts') {
       // Matches the shape of its neighbours in the reel action column: a round
       // tonal button with a caption underneath.
       const circle = createElement('span', 'yts-shorts-circle');
       circle.append(createCircleIcon());
-      button.append(circle, createElement('span', 'yts-shorts-label', 'YTS'));
+      button.append(circle, createElement('span', 'yts-shorts-label', 'Скачать'));
     } else {
       button.append(createCircleIcon());
     }

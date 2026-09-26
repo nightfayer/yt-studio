@@ -139,7 +139,7 @@
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    #35d477 var(--yts-rt-progress, 0%),
+    #00f2fe var(--yts-rt-progress, 0%),
     rgba(255, 255, 255, 0.14) var(--yts-rt-progress, 0%)
   );
 }

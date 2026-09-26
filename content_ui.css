@@ -2,7 +2,7 @@
 .yts-download-btn {
   position: relative;
   width: 44px; height: 100%;
-  color: #35d477;
+  color: #00f2fe;
   vertical-align: top;
   opacity: .9;
   overflow: visible;
@@ -96,14 +96,14 @@
 /* «Доступно обновление» — bold green with a soft lemon-vanilla glow */
 .yts-brand-head a.yts-update-link {
   margin-left: 8px;
-  color: #35d477;
+  color: #00f2fe;
   font-weight: 700;
   text-shadow:
     0 0 6px rgba(255, 243, 191, .9),
     0 0 14px rgba(255, 236, 160, .45);
 }
 .yts-brand-head a.yts-update-link:hover {
-  color: #4ade87;
+  color: #00f2fe;
   text-decoration: underline;
 }
 
@@ -172,20 +172,20 @@
   box-sizing: border-box;
   position: relative;
 }
-.yts-menu-radio.sel .yts-dot { border-color: #35d477; }
+.yts-menu-radio.sel .yts-dot { border-color: #00f2fe; }
 .yts-menu-radio.sel .yts-dot::after {
   content: ''; position: absolute;
   inset: 2.5px; border-radius: 50%;
-  background: #35d477;
+  background: #00f2fe;
 }
 .yts-radio-txt { display: flex; flex-direction: column; }
 .yts-radio-txt b { color: #fff; font-size: 13.5px; font-weight: 600; }
 .yts-radio-txt i { color: #9aa0a6; font-size: 11.5px; font-style: normal; margin-top: 2px; line-height: 1.3; }
-.yts-menu-radio.sel .yts-radio-txt b { color: #78e9a5; }
+.yts-menu-radio.sel .yts-radio-txt b { color: #38bdf8; }
 
 #yts-toast {
-  --yts-progress-color: #35d477;
-  --yts-progress-text: #78e9a5;
+  --yts-progress-color: #00f2fe;
+  --yts-progress-text: #38bdf8;
   position: fixed;
   right: 20px; bottom: 20px;
   z-index: 2147483647;
@@ -323,7 +323,7 @@
   font-size: 13.5px;
 }
 .yts-playlist-row:hover { background: rgba(255,255,255,.08); }
-.yts-playlist-row input { accent-color: #35d477; width: 15px; height: 15px; flex: 0 0 auto; }
+.yts-playlist-row input { accent-color: #00f2fe; width: 15px; height: 15px; flex: 0 0 auto; }
 .yts-playlist-all { margin-bottom: 6px; font-weight: 600; }
 .yts-playlist-idx { color: #9aa0a6; min-width: 22px; text-align: right; flex: 0 0 auto; }
 .yts-playlist-title {
@@ -342,8 +342,8 @@
   cursor: pointer;
 }
 .yts-btn:hover { background: #303338; }
-.yts-btn.primary { background: #35d477; border-color: #35d477; color: #08361d; font-weight: 600; }
-.yts-btn.primary:hover { background: #4ade87; }
+.yts-btn.primary { background: #00f2fe; border-color: #00f2fe; color: #08361d; font-weight: 600; }
+.yts-btn.primary:hover { background: #00f2fe; }
 
 /* ---- live recording panel ----------------------------------------------- */
 #yts-live-panel {
@@ -402,7 +402,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #78e9a5;
+  color: #38bdf8;
 }
 #yts-queue .yts-queue-body { display: none; padding: 0 10px 10px; }
 #yts-queue:hover .yts-queue-body { display: block; }
@@ -425,8 +425,8 @@
 }
 #yts-queue .yts-queue-ic { min-width: 14px; text-align: center; }
 #yts-queue .yts-queue-idx { color: #9aa0a6; min-width: 20px; text-align: right; }
-#yts-queue .yts-queue-row.done .yts-queue-ic { color: #35d477; }
+#yts-queue .yts-queue-row.done .yts-queue-ic { color: #00f2fe; }
 #yts-queue .yts-queue-row.error .yts-queue-ic { color: #ff6b6b; }
-#yts-queue .yts-queue-row.active { background: rgba(53,212,119,.12); }
+#yts-queue .yts-queue-row.active { background: rgba(0,242,254,.12); }
 #yts-queue .yts-queue-row.pending { opacity: .65; }
 #yts-queue .yts-queue-actions { display: flex; justify-content: flex-end; }

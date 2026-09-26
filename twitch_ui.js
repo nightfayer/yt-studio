@@ -579,7 +579,7 @@
     const arrows = document.createElementNS(SVG_NS, 'path');
     arrows.setAttribute('class', 'yts-arrows');
     arrows.setAttribute('fill', 'currentColor');
-    arrows.setAttribute('d', 'M10.8 5.53h14.4L18 18z M10.8 18h14.4L18 30.47z');
+    arrows.setAttribute('d', 'M18 23.5l-6.5-6.5h4V9.5h5v7.5h4L18 23.5z M10.5 26h15v2h-15z');
     const dot = document.createElementNS(SVG_NS, 'circle');
     dot.setAttribute('class', 'yts-rec-dot');
     dot.setAttribute('cx', '18');

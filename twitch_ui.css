@@ -13,11 +13,11 @@
   border: none;
   border-radius: 0.4rem;
   background: transparent;
-  color: #35d477;
+  color: #00f2fe;
   cursor: pointer;
   vertical-align: top;
 }
-.yts-twitch-btn:hover { background: rgba(255, 255, 255, 0.16); color: #4ade87; }
+.yts-twitch-btn:hover { background: rgba(255, 255, 255, 0.16); color: #00f2fe; }
 .yts-twitch-btn svg { width: 2rem; height: 2rem; display: block; }
 .yts-twitch-btn .yts-rec-dot { opacity: 0; }
 .yts-twitch-btn.recording { color: #eb0400; }
