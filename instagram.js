@@ -368,7 +368,7 @@
     const box = button.getBoundingClientRect();
     const menuWidth = 240;
     const menuHeight = 120;
-    menu.style.left = `${Math.max(12, Math.min(window.innerWidth - menuWidth - 12, box.right - menuWidth))}px`;
+    menu.style.left = `${Math.max(12, Math.min(window.innerWidth - menuWidth - 12, box.left))}px`;
     menu.style.top = box.top > menuHeight + 16
       ? `${box.top - menuHeight - 8}px`
       : `${Math.min(window.innerHeight - menuHeight - 12, box.bottom + 8)}px`;

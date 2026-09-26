@@ -5,8 +5,9 @@
 /* Overlay button on the video */
 .yts-insta-btn.yts-insta-overlay {
   position: absolute !important;
-  right: 14px !important;
-  bottom: 24px !important;
+  left: 16px !important;
+  right: auto !important;
+  bottom: 20px !important;
   width: 40px !important;
   height: 40px !important;
   padding: 0 !important;
