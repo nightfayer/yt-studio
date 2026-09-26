@@ -10,7 +10,7 @@ const RELOAD_DOWNLOAD_PREFIX = 'yts_reload_download:';
 const RELOAD_GUARD_PREFIX = 'yts_reload_guard:';
 const RELOAD_GUARD_TTL_MS = 5 * 60_000;
 const UPDATE_RELEASES_API = 'https://api.github.com/repos/nightfayer/yt-studio/releases/latest';
-const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/nightfayer/yts_updates/main/yts.json';
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/nightfayer/yt-studio/main/manifest.json';
 const UPDATE_RELEASES_PAGE = 'https://github.com/nightfayer/yt-studio/releases';
 const UPDATE_STATE_KEY = 'yts_update';
 const UPDATE_ALARM = 'yts-update-check';
@@ -266,12 +266,21 @@ const UPDATE_FETCH_TIMEOUT_MS = 15_000;
 // publish_update.yml) answers only when the API does not — the unauthenticated
 // API allows 60 requests an hour per IP, and a shared IP can run out.
 async function fetchLatestVersionInfo() {
+  const current = chrome.runtime.getManifest().version;
   try {
     const response = await fetch(UPDATE_RELEASES_API, {
       cache: 'no-store',
       headers: { Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(UPDATE_FETCH_TIMEOUT_MS),
     });
+    if (response.status === 404) {
+      return {
+        version: current,
+        downloadUrl: '',
+        releaseUrl: UPDATE_RELEASES_PAGE,
+        source: 'local',
+      };
+    }
     if (!response.ok) throw new Error(`releases API HTTP ${response.status}`);
     const release = await response.json();
     const version = String(release.tag_name || '').replace(/^v/i, '');
@@ -284,18 +293,31 @@ async function fetchLatestVersionInfo() {
       source: 'releases-api',
     };
   } catch (apiError) {
-    const response = await fetch(UPDATE_MANIFEST_URL, {
-      cache: 'no-store', signal: AbortSignal.timeout(UPDATE_FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`yts.json HTTP ${response.status}`);
-    const data = await response.json();
-    if (!/^\d+(\.\d+)*$/.test(String(data.version || ''))) throw new Error('yts.json version is malformed');
-    return {
-      version: String(data.version),
-      downloadUrl: typeof data.url === 'string' ? data.url : '',
-      releaseUrl: typeof data.release_url === 'string' ? data.release_url : UPDATE_RELEASES_PAGE,
-      source: 'yts.json',
-    };
+    try {
+      const response = await fetch(UPDATE_MANIFEST_URL, {
+        cache: 'no-store', signal: AbortSignal.timeout(UPDATE_FETCH_TIMEOUT_MS),
+      });
+      if (response.status === 404) {
+        return {
+          version: current,
+          downloadUrl: '',
+          releaseUrl: UPDATE_RELEASES_PAGE,
+          source: 'local',
+        };
+      }
+      if (!response.ok) throw new Error(`manifest.json HTTP ${response.status}`);
+      const data = await response.json();
+      const version = String(data.version || '').replace(/^v/i, '');
+      if (!/^\d+(\.\d+)*$/.test(version)) throw new Error('manifest.json version is malformed');
+      return {
+        version,
+        downloadUrl: typeof data.url === 'string' ? data.url : '',
+        releaseUrl: typeof data.release_url === 'string' ? data.release_url : UPDATE_RELEASES_PAGE,
+        source: 'manifest.json',
+      };
+    } catch {
+      throw apiError;
+    }
   }
 }
 
@@ -304,7 +326,7 @@ async function applyUpdateBadge(available) {
     await chrome.action.setBadgeText({ text: available ? '+' : '' });
     if (available) {
       await chrome.action.setBadgeBackgroundColor({ color: '#212121' });
-      await chrome.action.setBadgeTextColor({ color: '#35d477' });
+      await chrome.action.setBadgeTextColor({ color: '#00f2fe' });
     }
   } catch (error) { /* action API missing only in tests */ }
 }

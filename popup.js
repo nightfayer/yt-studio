@@ -14,6 +14,8 @@ document.getElementById('current-version').textContent = `v${chrome.runtime.getM
 function render(state) {
   releaseLink.href = LATEST_RELEASE_URL;
   statusBox.className = 'status';
+  releaseLink.hidden = true;
+
   if (!state || (!state.checkedAt && !state.error)) {
     statusBox.textContent = 'Обновления ещё не проверялись.';
     return;
@@ -21,12 +23,12 @@ function render(state) {
   if (state.available) {
     statusBox.classList.add('update');
     statusBox.textContent = `Доступна новая версия v${state.latest}!`;
+    releaseLink.hidden = false;
     return;
   }
   if (state.error && !state.latest) {
     statusBox.classList.add('error');
     statusBox.textContent = `Не удалось проверить обновления: ${state.error}`;
-    releaseLink.href = LATEST_RELEASE_URL;
     return;
   }
   const checked = state.checkedAt ? new Date(state.checkedAt).toLocaleString() : '';
