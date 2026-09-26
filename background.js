@@ -189,14 +189,23 @@ async function saveDownload(url, filename) {
   if (typeof filename !== 'string' || !filename) throw new Error('download filename is missing');
   const repaired = repairFilename(filename);
   if (repaired !== filename) {
-    // Logged, not silent: the repair hides the symptom, and without this line
-    // the next bad title would be just as invisible as the first one was.
     void appendLog({
       ts: Date.now(),
       tag: 'download',
       text: `filename repaired: ${JSON.stringify(filename)} -> ${JSON.stringify(repaired)}`,
     }).catch(() => {});
   }
+  await chrome.storage.local.set({
+    yts_active_download: {
+      filename: repaired,
+      percent: 100,
+      status: 'Сохранение в загрузки…',
+      updatedAt: Date.now(),
+    },
+  }).catch(() => {});
+  setTimeout(() => {
+    chrome.storage.local.remove('yts_active_download').catch(() => {});
+  }, 4000);
   return chrome.downloads.download({ url, filename: repaired, saveAs: false });
 }
 
@@ -604,6 +613,15 @@ async function handleMessage(message, sender) {
         throw new Error('progress messages are only accepted from the media processor');
       }
       if (!Number.isInteger(message.tabId)) throw new Error('progress tab is unavailable');
+      const percent = Math.max(0, Math.min(100, Math.round(Number(message.percent || (message.value * 100)) || 0)));
+      await chrome.storage.local.set({
+        yts_active_download: {
+          jobId: message.jobId,
+          percent,
+          status: message.status || 'Обработка медиа…',
+          updatedAt: Date.now(),
+        },
+      }).catch(() => {});
       await chrome.tabs.sendMessage(message.tabId, {
         t: 'yts-progress',
         jobId: message.jobId,
@@ -618,6 +636,21 @@ async function handleMessage(message, sender) {
       return undefined;
   }
 }
+
+chrome.commands?.onCommand?.addListener(async (command) => {
+  if (command === 'quick-download') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { t: 'yts-toggle-menu' }).catch(() => {});
+    }
+  }
+});
+
+chrome.downloads?.onChanged?.addListener((delta) => {
+  if (delta.state?.current === 'complete' || delta.state?.current === 'interrupted') {
+    chrome.storage.local.remove('yts_active_download').catch(() => {});
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !HANDLED_MESSAGES.has(message.t)) return false;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Studio",
-  "version": "1.9",
+  "version": "2.0",
   "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, Coub, VK, Zvuk и TikTok, запись трансляций — без внешних сервисов",
   "permissions": [
     "downloads",
@@ -46,6 +46,15 @@
       "128": "icons/128.png"
     }
   },
+  "commands": {
+    "quick-download": {
+      "suggested_key": {
+        "default": "Alt+Shift+D",
+        "mac": "Alt+Shift+D"
+      },
+      "description": "Быстрое открытие меню скачивания"
+    }
+  },
   "content_scripts": [
     {
       "matches": [
@@ -81,6 +90,7 @@
         "https://rutube.sport/*"
       ],
       "js": [
+        "settings.js",
         "rutube.js"
       ],
       "css": [
@@ -128,6 +138,7 @@
         "https://vk.com/clip*"
       ],
       "js": [
+        "settings.js",
         "vk.js"
       ],
       "css": [

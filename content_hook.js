@@ -7703,8 +7703,9 @@
         let isLive = rawDuration === Infinity;
         try { isLive = isLive || Boolean(p?.getVideoData?.()?.isLive); } catch (e) {}
         let musicVideoType = '';
-        try { musicVideoType = String(playerResponse()?.videoDetails?.musicVideoType || ''); } catch (e) {}
-        const resp = { ok: true, videoId: vidId(), title: (p && p.getVideoData && p.getVideoData().title) || document.title.replace(/ - YouTube(?: Music)?$/, ''), duration: dur, heights: availableHeights(), isLive, liveRecording: Boolean(store.liveSession), audioSource: bestAudioSource(), musicVideoType };
+        const vData = (p && p.getVideoData) ? p.getVideoData() : null;
+        const author = vData?.author || '';
+        const resp = { ok: true, videoId: vidId(), title: vData?.title || document.title.replace(/ - YouTube(?: Music)?$/, ''), author, duration: dur, heights: availableHeights(), isLive, liveRecording: Boolean(store.liveSession), audioSource: bestAudioSource(), musicVideoType };
         const ctx = isShortsPage() ? 'shorts'
           : (location.pathname.indexOf('/embed/') === 0 ? 'embed' : 'page');
         log('info', JSON.stringify({ ctx, dur, heights: resp.heights, hasPlayer: !!p, isLive }));

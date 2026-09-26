@@ -29,8 +29,19 @@
     Открыть страницу актуального релиза
   </a>
 
+  <div id="active-download" class="download-card" hidden>
+    <div class="download-card-header">
+      <span class="download-card-title" id="dl-title">Скачивание видео…</span>
+      <span class="download-card-percent" id="dl-percent">0%</span>
+    </div>
+    <div class="download-progress-bar">
+      <div class="download-progress-fill" id="dl-progress-fill" style="width: 0%"></div>
+    </div>
+    <div class="download-card-status" id="dl-status">Подготовка файла…</div>
+  </div>
+
   <div class="section">
-    <div class="section-head">Качество плеера</div>
+    <div class="section-head">Качество плеера по умолчанию</div>
 
     <div class="setting">
       <label class="setting-row" for="yt-quality">
@@ -54,14 +65,48 @@
       </label>
     </div>
 
+    <div class="setting">
+      <label class="setting-row" for="vk-quality">
+        <span class="setting-name">VK Видео</span>
+        <select id="vk-quality"></select>
+      </label>
+    </div>
+
+    <div class="setting">
+      <label class="setting-row" for="rt-quality">
+        <span class="setting-name">Rutube</span>
+        <select id="rt-quality"></select>
+      </label>
+    </div>
+
+    <div class="setting">
+      <label class="setting-row" for="name-template">
+        <span class="setting-name">Имя файла</span>
+        <select id="name-template">
+          <option value="title">Только название</option>
+          <option value="author_title">Автор — Название</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="setting-hotkey">
+      <span>Быстрое меню:</span>
+      <kbd>Alt + Shift + D</kbd>
+    </div>
+
     <div id="settings-hint" class="hint">
       «Как у монитора» — по разрешению экрана, на котором открыта вкладка.
     </div>
   </div>
 
-  <div id="recovered" class="status update" hidden></div>
-  <button id="save-recovered" class="export-log" type="button" hidden>Сохранить готовый файл</button>
-  <button id="export-log" class="export-log" type="button">Сохранить журнал диагностики (YTS-debug)</button>
+  <details class="debug-details">
+    <summary class="debug-summary">Диагностика и восстановление</summary>
+    <div class="debug-body">
+      <div id="recovered" class="status update" hidden></div>
+      <button id="save-recovered" class="export-log" type="button" hidden>Сохранить готовый файл</button>
+      <button id="export-log" class="export-log" type="button">Сохранить журнал диагностики (YTS-debug)</button>
+    </div>
+  </details>
   <script src="settings.js"></script>
   <script src="popup.js"></script>
 </body>

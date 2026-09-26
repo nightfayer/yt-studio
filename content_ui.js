@@ -388,12 +388,57 @@
       || { id: audioFormat, title: String(audioFormat || 'mp3').toUpperCase(), extension: '.mp3' };
   }
 
+  let userSettings = {};
+
+  function videoTitle(info) {
+    const base = safeFilename(info?.title);
+    if (userSettings?.filenameTemplate === 'author_title' && info?.author) {
+      return `${safeFilename(info.author)} — ${base}`;
+    }
+    return base;
+  }
+
+  function addTabs(targetMenu) {
+    const tabsBar = createElement('div', 'yts-menu-tabs');
+    const tabs = [
+      { id: 'all', label: 'Все' },
+      { id: 'video', label: 'Видео' },
+      { id: 'audio', label: 'Аудио' },
+      { id: 'subs', label: 'Субтитры' },
+    ];
+
+    function switchTab(id) {
+      for (const btn of tabsBar.querySelectorAll('.yts-tab-btn')) {
+        btn.classList.toggle('active', btn.dataset.tabId === id);
+      }
+      for (const elem of targetMenu.querySelectorAll('[data-category]')) {
+        const cat = elem.dataset.category;
+        elem.hidden = (id !== 'all' && cat !== id);
+      }
+    }
+
+    for (const t of tabs) {
+      const btn = createElement('button', `yts-tab-btn${t.id === 'all' ? ' active' : ''}`, t.label);
+      btn.type = 'button';
+      btn.dataset.tabId = t.id;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        switchTab(t.id);
+      });
+      tabsBar.append(btn);
+    }
+    targetMenu.append(tabsBar);
+  }
+
   function addDownloadItems(info, { videoAllowed = true } = {}) {
     if (videoAllowed) {
-      menu.append(createHeading('Видео'));
+      const vHeading = createHeading('Видео');
+      vHeading.dataset.category = 'video';
+      menu.append(vHeading);
       const heights = [...new Set(info.heights || [])].sort((a, b) => b - a);
       for (const height of heights) {
         const item = createElement('div', 'yts-menu-item');
+        item.dataset.category = 'video';
         setItemLabel(item, `${height}p`, 'MP4 video');
         item.addEventListener('click', () => {
           closeMenu();
@@ -403,9 +448,12 @@
       }
     }
 
-    menu.append(createHeading('Аудио'));
+    const aHeading = createHeading('Аудио');
+    aHeading.dataset.category = 'audio';
+    menu.append(aHeading);
     for (const audio of audioFormatsFor(info)) {
       const item = createElement('div', 'yts-menu-item');
+      item.dataset.category = 'audio';
       setItemLabel(item, audio.title, audio.note);
       item.addEventListener('click', () => {
         closeMenu();
@@ -433,8 +481,11 @@
   }
 
   function addPlaylistSection(info, items) {
-    menu.append(createHeading('Плейлист'));
+    const pHeading = createHeading('Плейлист');
+    pHeading.dataset.category = 'video';
+    menu.append(pHeading);
     const item = createElement('div', 'yts-menu-item');
+    item.dataset.category = 'video';
     setItemLabel(item, 'Скачать плейлист…', `${items.length} видео, выбор в списке`);
     item.addEventListener('click', () => {
       closeMenu();
@@ -444,9 +495,12 @@
   }
 
   function addSubtitleItems(info, availability) {
-    menu.append(createHeading('Субтитры'));
+    const sHeading = createHeading('Субтитры');
+    sHeading.dataset.category = 'subs';
+    menu.append(sHeading);
     if (!availability?.available) {
       const item = createElement('div', 'yts-menu-item disabled');
+      item.dataset.category = 'subs';
       setItemLabel(item, '.srt', 'недоступны');
       item.title = 'Субтитры недоступны для этого видео';
       menu.append(item);
@@ -460,6 +514,7 @@
     ];
     for (const [extension, format, description] of formats) {
       const item = createElement('div', 'yts-menu-item');
+      item.dataset.category = 'subs';
       setItemLabel(item, extension, `${language} · ${description}`);
       item.addEventListener('click', () => {
         closeMenu();
@@ -470,10 +525,13 @@
   }
 
   function addRadioSelector(heading, storageKey, options, current) {
-    menu.append(createHeading(heading));
+    const rHeading = createHeading(heading);
+    rHeading.dataset.category = 'video';
+    menu.append(rHeading);
     let selected = current;
     const rows = options.map((option) => {
       const row = createElement('div', `yts-menu-radio${selected === option.value ? ' sel' : ''}`);
+      row.dataset.category = 'video';
       const text = createElement('span', 'yts-radio-txt');
       text.append(createElement('b', null, option.title), createElement('i', null, option.note));
       row.append(createElement('span', 'yts-dot'), text);
@@ -519,6 +577,7 @@
         // Music "songs" (art tracks) have no real footage — the video stream is
         // a static cover rendered as video, so only audio options make sense.
         const artTrackOnly = IS_MUSIC && info.musicVideoType === 'MUSIC_VIDEO_TYPE_ATV';
+        if (!artTrackOnly) addTabs(menu);
         addDownloadItems(info, { videoAllowed: !artTrackOnly });
         const playlistItems = playlistIdFromLocation() ? scrapePlaylistItems() : [];
         if (playlistItems.length > 1) addPlaylistSection(info, playlistItems);
@@ -707,7 +766,7 @@
         throw new Error(`не удалось сформировать .${output.extension}: отсутствуют таймкоды`);
       }
       const content = output.timed ? buildTimedSubtitles(response.cues, output.extension) : response.text;
-      const filename = `${safeFilename(info.title)} [${language}].${output.extension}`;
+      const filename = `${videoTitle(info)} [${language}].${output.extension}`;
       const url = `data:${output.mime};charset=utf-8,${encodeURIComponent(`\uFEFF${content}`)}`;
       const saved = await sendWorkerMessage({ t: 'yts-save', url, filename }, 30_000);
       if (!saved?.ok) throw new Error(saved?.error || 'не удалось сохранить субтитры');
@@ -914,7 +973,7 @@
             : (shouldTranscode ? 'Перекодирование в H.264/AAC' : 'Склейка дорожек')));
 
       const extension = isMp3 ? audioMeta.extension : '.mp4';
-      const filename = `${safeFilename(info.title)}${isMp3 ? '' : ` [${outputHeight}p]`}${extension}`;
+      const filename = `${videoTitle(info)}${isMp3 ? '' : ` [${outputHeight}p]`}${extension}`;
       notification.stage('transfer', 0, 'active', 'Передача и сборка');
       // A track counts as staged only if the hook verified the shipped stream
       // against the finished file AND the tail captured after the last drain
@@ -1389,8 +1448,8 @@
         // name is built from what actually arrived, not from what was asked.
         // Audio: offscreen swaps the extension for the one it actually wrote.
         filename: (tracks) => (isAudio
-          ? `${safeFilename(info.title)}${audioFormatMeta(audioFormat, info).extension}`
-          : `${safeFilename(info.title)} [${tracks.video?.height || height}p].mp4`),
+          ? `${videoTitle(info)}${audioFormatMeta(audioFormat, info).extension}`
+          : `${videoTitle(info)} [${tracks.video?.height || height}p].mp4`),
         onProcessing: () => notification.setCancel(null),
       }, (stage, fraction, state, label) => {
         notification.stage(stage, fraction, state, label);
@@ -1693,7 +1752,7 @@
       await Promise.allSettled([chains.video, chains.audio]);
       if (liveJob.failed) throw new Error(liveJob.failed);
       notification.set('Собираю файл записи…', 0.25);
-      const filename = `${safeFilename(info.title)} [LIVE].mp4`;
+      const filename = `${videoTitle(info)} [LIVE].mp4`;
       const finalized = await sendRuntimeMessage({
         t: 'yts-live-finalize',
         jobId,
@@ -2150,9 +2209,20 @@
   (async () => {
     const settings = globalThis.YTStudioSettings;
     if (!settings) return;
-    await pushSettings(await settings.load());
-    settings.subscribe((next) => { void pushSettings(next); });
+    userSettings = await settings.load();
+    await pushSettings(userSettings);
+    settings.subscribe((next) => {
+      userSettings = next;
+      void pushSettings(next);
+    });
   })();
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.t === 'yts-toggle-menu') {
+      const button = document.getElementById(BUTTON_ID);
+      if (button) button.click();
+    }
+  });
 
   (async () => {
     const resumed = await resumeReloadedVideoDownload();

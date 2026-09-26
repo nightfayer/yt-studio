@@ -20,13 +20,16 @@
     youtubeLock: true,
     twitchQuality: 'auto',
     twitchLock: true,
+    vkQuality: 'auto',
+    rutubeQuality: 'auto',
+    filenameTemplate: 'title',
   };
 
-  // Rungs offered in the popup. YouTube and Twitch top out differently, and a
-  // value the site never serves would silently behave like the nearest lower
-  // one, so the two lists are kept apart.
+  // Rungs offered in the popup.
   const YOUTUBE_HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
   const TWITCH_HEIGHTS = [1080, 720, 480, 360, 160];
+  const VK_HEIGHTS = [2160, 1440, 1080, 720, 480, 360, 240];
+  const RUTUBE_HEIGHTS = [1080, 720, 480, 360];
 
   function normalizeQuality(value, allowed) {
     if (value === 'auto' || value === 'max') return value;
@@ -44,6 +47,9 @@
       youtubeLock: stored.youtubeLock == null ? DEFAULTS.youtubeLock : Boolean(stored.youtubeLock),
       twitchQuality: normalizeQuality(stored.twitchQuality, TWITCH_HEIGHTS),
       twitchLock: stored.twitchLock == null ? DEFAULTS.twitchLock : Boolean(stored.twitchLock),
+      vkQuality: normalizeQuality(stored.vkQuality, VK_HEIGHTS),
+      rutubeQuality: normalizeQuality(stored.rutubeQuality, RUTUBE_HEIGHTS),
+      filenameTemplate: stored.filenameTemplate === 'author_title' ? 'author_title' : 'title',
     };
   }
 
@@ -114,7 +120,7 @@
   }
 
   globalThis.YTStudioSettings = {
-    KEY, DEFAULTS, YOUTUBE_HEIGHTS, TWITCH_HEIGHTS,
+    KEY, DEFAULTS, YOUTUBE_HEIGHTS, TWITCH_HEIGHTS, VK_HEIGHTS, RUTUBE_HEIGHTS,
     normalize, monitorHeight, resolveHeight, load, save, subscribe,
   };
 })();

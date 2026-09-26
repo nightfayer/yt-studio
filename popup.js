@@ -81,21 +81,61 @@ function fillQualitySelect(select, heights) {
   }
 }
 
+// Active download progress watcher
+const activeDownloadBox = document.getElementById('active-download');
+const dlTitle = document.getElementById('dl-title');
+const dlPercent = document.getElementById('dl-percent');
+const dlProgressFill = document.getElementById('dl-progress-fill');
+const dlStatus = document.getElementById('dl-status');
+
+function renderActiveDownload(dl) {
+  if (!dl || !dl.updatedAt || Date.now() - dl.updatedAt > 15_000) {
+    activeDownloadBox.hidden = true;
+    return;
+  }
+  activeDownloadBox.hidden = false;
+  const pct = Math.max(0, Math.min(100, Math.round(Number(dl.percent) || 0)));
+  dlTitle.textContent = dl.filename || 'Скачивание медиа…';
+  dlPercent.textContent = `${pct}%`;
+  dlProgressFill.style.width = `${pct}%`;
+  dlStatus.textContent = dl.status || 'Обработка…';
+}
+
+async function checkActiveDownload() {
+  const stored = await chrome.storage.local.get('yts_active_download').catch(() => ({}));
+  renderActiveDownload(stored.yts_active_download);
+}
+
+checkActiveDownload();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.yts_active_download) {
+    renderActiveDownload(changes.yts_active_download.newValue);
+  }
+});
+
 async function setupSettings() {
-  const { YOUTUBE_HEIGHTS, TWITCH_HEIGHTS, save, load } = globalThis.YTStudioSettings;
+  const { YOUTUBE_HEIGHTS, TWITCH_HEIGHTS, VK_HEIGHTS, RUTUBE_HEIGHTS, save, load } = globalThis.YTStudioSettings;
   const youtubeQuality = document.getElementById('yt-quality');
   const youtubeLock = document.getElementById('yt-lock');
   const twitchQuality = document.getElementById('tw-quality');
   const twitchLock = document.getElementById('tw-lock');
+  const vkQuality = document.getElementById('vk-quality');
+  const rtQuality = document.getElementById('rt-quality');
+  const nameTemplate = document.getElementById('name-template');
 
   fillQualitySelect(youtubeQuality, YOUTUBE_HEIGHTS);
   fillQualitySelect(twitchQuality, TWITCH_HEIGHTS);
+  fillQualitySelect(vkQuality, VK_HEIGHTS || [2160, 1440, 1080, 720, 480, 360, 240]);
+  fillQualitySelect(rtQuality, RUTUBE_HEIGHTS || [1080, 720, 480, 360]);
 
   const current = await load();
   youtubeQuality.value = String(current.youtubeQuality);
   youtubeLock.checked = current.youtubeLock;
   twitchQuality.value = String(current.twitchQuality);
   twitchLock.checked = current.twitchLock;
+  if (vkQuality) vkQuality.value = String(current.vkQuality || 'auto');
+  if (rtQuality) rtQuality.value = String(current.rutubeQuality || 'auto');
+  if (nameTemplate) nameTemplate.value = String(current.filenameTemplate || 'title');
 
   const note = (text) => { settingsHint.textContent = text; };
   const persist = async (patch, message) => {
@@ -127,6 +167,24 @@ async function setupSettings() {
       ? 'Качество Twitch закреплено: авто-режим плеера выключен.'
       : 'Twitch снова может выбирать качество сам.',
   ));
+  if (vkQuality) {
+    vkQuality.addEventListener('change', () => persist(
+      { vkQuality: vkQuality.value },
+      'Сохранено. Качество для VK Видео обновлено.',
+    ));
+  }
+  if (rtQuality) {
+    rtQuality.addEventListener('change', () => persist(
+      { rutubeQuality: rtQuality.value },
+      'Сохранено. Качество для Rutube обновлено.',
+    ));
+  }
+  if (nameTemplate) {
+    nameTemplate.addEventListener('change', () => persist(
+      { filenameTemplate: nameTemplate.value },
+      'Сохранено. Формат имени файла обновлен.',
+    ));
+  }
 }
 
 setupSettings().catch((error) => {

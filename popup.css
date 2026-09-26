@@ -242,3 +242,107 @@ body {
   opacity: 0.6;
   cursor: default;
 }
+
+/* Active Download Card */
+.download-card {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.35);
+  box-shadow: 0 0 16px rgba(0, 242, 254, 0.15);
+}
+
+.download-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.download-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.download-card-percent {
+  font-size: 12px;
+  font-weight: 800;
+  color: #00f2fe;
+  flex: 0 0 auto;
+}
+
+.download-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.download-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.6);
+}
+
+.download-card-status {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Hotkey Badge */
+.setting-hotkey {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.setting-hotkey kbd {
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 242, 254, 0.3);
+  background: rgba(0, 242, 254, 0.1);
+  color: #00f2fe;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* Debug Details Accordion */
+.debug-details {
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+}
+
+.debug-summary {
+  font-size: 11px;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+  outline: none;
+}
+
+.debug-summary:hover {
+  color: #94a3b8;
+}
+
+.debug-body {
+  margin-top: 8px;
+}

@@ -641,6 +641,13 @@
   function schedule() {
     try { ensureButton(); } catch (error) {}
   }
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.t === 'yts-toggle-menu') {
+      const button = document.querySelector(`.${BUTTON_CLASS}`);
+      if (button) button.click();
+    }
+  });
+
   setInterval(schedule, 1000);
   document.addEventListener('visibilitychange', schedule);
   window.addEventListener('scroll', () => { if (menu) closeMenu(); }, { passive: true });
