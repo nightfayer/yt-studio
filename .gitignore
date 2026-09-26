@@ -1,23 +1,15 @@
-# auto-installed binaries (yt-dlp, ffmpeg) — never commit these
-bin/
-
-# user data
-downloads/
-config.json
-history.json
-cookies.txt
-.tmp/
-
-# python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-
-# editors / os
-.vscode/
-.idea/
+# OS & Editor files
 .DS_Store
 Thumbs.db
 desktop.ini
+.idea/
+.vscode/
+
+# Build & package archives
+*.zip
+*.crx
+*.pem
+
+# Runtime & diagnostic logs
+YTS-debug.txt
+*.log
