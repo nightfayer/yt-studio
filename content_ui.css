@@ -1,0 +1,432 @@
+/* Download button lives inside the player's right-controls, matching yt style */
+.yts-download-btn {
+  position: relative;
+  width: 44px; height: 100%;
+  color: #35d477;
+  vertical-align: top;
+  opacity: .9;
+  overflow: visible;
+}
+.yts-download-btn:hover { opacity: 1; }
+/* A square box keeps the brand ring perfectly round inside the control. */
+.yts-download-btn svg {
+  position: absolute;
+  width: 27px;
+  height: 27px;
+  top: 50%;
+  left: 50%;
+  display: block;
+  transform: translate(-50%, -50%);
+  shape-rendering: geometricPrecision;
+}
+.yts-ext { color: #9aa0a6; font-size: 12px; margin-left: 4px; }
+
+/* Circle brand button inside the YouTube Music player bar (left of volume) */
+.yts-music-btn {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: .85;
+}
+.yts-music-btn:hover { opacity: 1; }
+.yts-music-btn svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  shape-rendering: geometricPrecision;
+}
+
+/* Reel action column on Shorts: a round tonal button with a caption, matching
+   the shape and 78px rhythm of «Нравится» and its neighbours below it. */
+.yts-shorts-btn {
+  width: 48px;
+  height: 78px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.yts-shorts-circle {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .1);
+  transition: background .1s ease-in-out;
+}
+
+.yts-shorts-btn:hover .yts-shorts-circle { background: rgba(255, 255, 255, .2); }
+
+/* Centred by the circle's own flexbox — never absolutely positioned against
+   the taller button, which would drop the icon towards the caption. */
+.yts-shorts-circle svg {
+  position: static;
+  width: 26px;
+  height: 26px;
+  display: block;
+  transform: none;
+  shape-rendering: geometricPrecision;
+}
+
+.yts-shorts-label {
+  color: #f1f1f1;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: .3px;
+}
+
+/* «Доступно обновление» — bold green with a soft lemon-vanilla glow */
+.yts-brand-head a.yts-update-link {
+  margin-left: 8px;
+  color: #35d477;
+  font-weight: 700;
+  text-shadow:
+    0 0 6px rgba(255, 243, 191, .9),
+    0 0 14px rgba(255, 236, 160, .45);
+}
+.yts-brand-head a.yts-update-link:hover {
+  color: #4ade87;
+  text-decoration: underline;
+}
+
+.yts-menu {
+  position: fixed;
+  z-index: 2147483647;
+  background: rgba(28,28,28,.97);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 240px;
+  max-height: min(72vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 8px 28px rgba(0,0,0,.55);
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+}
+.yts-menu-head {
+  color: #9aa0a6;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 8px 12px 4px;
+}
+.yts-brand-head {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.yts-brand-head a { color: #818cf8; font-weight: 400; text-decoration: none; }
+.yts-brand-head a:hover { color: #a5b4fc; text-decoration: underline; }
+.yts-menu-item {
+  color: #fff;
+  padding: 9px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.yts-menu-item:hover { background: rgba(255,255,255,.12); }
+.yts-menu-item b { font-weight: 600; }
+.yts-menu-item.disabled {
+  color: #5f6368;
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: .55;
+}
+
+.yts-menu-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.yts-menu-radio:hover { background: rgba(255,255,255,.08); }
+.yts-dot {
+  flex: 0 0 auto;
+  width: 15px; height: 15px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 2px solid #888;
+  box-sizing: border-box;
+  position: relative;
+}
+.yts-menu-radio.sel .yts-dot { border-color: #35d477; }
+.yts-menu-radio.sel .yts-dot::after {
+  content: ''; position: absolute;
+  inset: 2.5px; border-radius: 50%;
+  background: #35d477;
+}
+.yts-radio-txt { display: flex; flex-direction: column; }
+.yts-radio-txt b { color: #fff; font-size: 13.5px; font-weight: 600; }
+.yts-radio-txt i { color: #9aa0a6; font-size: 11.5px; font-style: normal; margin-top: 2px; line-height: 1.3; }
+.yts-menu-radio.sel .yts-radio-txt b { color: #78e9a5; }
+
+#yts-toast {
+  --yts-progress-color: #35d477;
+  --yts-progress-text: #78e9a5;
+  position: fixed;
+  right: 20px; bottom: 20px;
+  z-index: 2147483647;
+  width: 320px;
+  background: rgba(20,20,20,.96);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+}
+#yts-toast.show { opacity: 1; transform: translateY(0); }
+#yts-toast .yts-toast-txt { display: block; margin-bottom: 8px; line-height: 1.35; }
+#yts-toast .yts-toast-bar {
+  height: 6px; border-radius: 4px;
+  background: rgba(255,255,255,.15);
+  overflow: hidden;
+}
+#yts-toast .yts-toast-bar i {
+  display: block; height: 100%; width: 0%;
+  background: var(--yts-progress-color);
+  transition: width .16s linear;
+}
+#yts-toast .yts-toast-bar[hidden] { display: none; }
+#yts-toast .yts-toast-stages { display: none; }
+#yts-toast .yts-toast-stages.show {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#yts-toast .yts-stage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+  color: #ddd;
+  font-size: 11.5px;
+}
+#yts-toast .yts-stage-value { color: #9aa0a6; }
+#yts-toast .yts-stage-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255,255,255,.12);
+}
+#yts-toast .yts-stage-bar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--yts-progress-color);
+  transition: width .16s linear;
+}
+#yts-toast .yts-stage.queued { opacity: .55; }
+#yts-toast .yts-stage.done .yts-stage-bar i,
+#yts-toast .yts-stage.error .yts-stage-bar i { background: var(--yts-progress-color); }
+#yts-toast .yts-stage.done .yts-stage-value,
+#yts-toast .yts-stage.error .yts-stage-value { color: var(--yts-progress-text); }
+#yts-toast .yts-toast-cancel {
+  pointer-events: auto;
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 8px;
+  background: rgba(255,255,255,.08);
+  color: #ff8a80;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+#yts-toast .yts-toast-cancel:hover { background: rgba(255,110,100,.16); }
+#yts-toast .yts-toast-cancel[hidden] { display: none; }
+
+/* ---- playlist picker ---------------------------------------------------- */
+#yts-playlist-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: rgba(0,0,0,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+}
+.yts-playlist {
+  width: min(560px, 92vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(24,24,24,.99);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 14px;
+  padding: 16px;
+  color: #fff;
+  box-shadow: 0 14px 44px rgba(0,0,0,.6);
+}
+.yts-playlist-head { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.yts-playlist-note { color: #9aa0a6; font-size: 12px; line-height: 1.35; margin-bottom: 10px; }
+.yts-playlist-format {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.yts-playlist-format select {
+  flex: 1;
+  background: #1f2124;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.yts-playlist-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 12px;
+}
+.yts-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13.5px;
+}
+.yts-playlist-row:hover { background: rgba(255,255,255,.08); }
+.yts-playlist-row input { accent-color: #35d477; width: 15px; height: 15px; flex: 0 0 auto; }
+.yts-playlist-all { margin-bottom: 6px; font-weight: 600; }
+.yts-playlist-idx { color: #9aa0a6; min-width: 22px; text-align: right; flex: 0 0 auto; }
+.yts-playlist-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yts-playlist-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.yts-btn {
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 9px;
+  background: #26282b;
+  color: #fff;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.yts-btn:hover { background: #303338; }
+.yts-btn.primary { background: #35d477; border-color: #35d477; color: #08361d; font-weight: 600; }
+.yts-btn.primary:hover { background: #4ade87; }
+
+/* ---- live recording panel ----------------------------------------------- */
+#yts-live-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 280px;
+  padding: 13px 16px;
+  background: rgba(20,20,20,.96);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  color: #fff;
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+}
+#yts-live-panel .yts-live-head { display: flex; align-items: center; gap: 9px; }
+#yts-live-panel .yts-live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4e45;
+  animation: yts-live-pulse 1.2s ease-in-out infinite;
+  flex: 0 0 auto;
+}
+#yts-live-panel .yts-live-txt { font-variant-numeric: tabular-nums; }
+#yts-live-panel .yts-live-stop { align-self: stretch; }
+
+@keyframes yts-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+/* ---- playlist queue panel (pill collapses, expands on hover) ------------ */
+#yts-queue {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 2147483646;
+  max-width: 380px;
+  background: rgba(20,20,20,.96);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  color: #fff;
+  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  overflow: hidden;
+}
+#yts-queue .yts-queue-pill {
+  padding: 10px 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #78e9a5;
+}
+#yts-queue .yts-queue-body { display: none; padding: 0 10px 10px; }
+#yts-queue:hover .yts-queue-body { display: block; }
+#yts-queue .yts-queue-list {
+  max-height: 44vh;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+#yts-queue .yts-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+#yts-queue .yts-queue-row .yts-queue-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#yts-queue .yts-queue-ic { min-width: 14px; text-align: center; }
+#yts-queue .yts-queue-idx { color: #9aa0a6; min-width: 20px; text-align: right; }
+#yts-queue .yts-queue-row.done .yts-queue-ic { color: #35d477; }
+#yts-queue .yts-queue-row.error .yts-queue-ic { color: #ff6b6b; }
+#yts-queue .yts-queue-row.active { background: rgba(53,212,119,.12); }
+#yts-queue .yts-queue-row.pending { opacity: .65; }
+#yts-queue .yts-queue-actions { display: flex; justify-content: flex-end; }

@@ -1,0 +1,91 @@
+/* Record button matches Twitch player-control buttons (3rem hit area, 2rem
+   icon) and never overlaps them: it is prepended as a flow item inside the
+   right control group, so FrankerFaceZ and native buttons keep their spots. */
+.yts-twitch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  min-width: 3rem;
+  height: 3rem;
+  padding: 0 0.4rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #35d477;
+  cursor: pointer;
+  vertical-align: top;
+}
+.yts-twitch-btn:hover { background: rgba(255, 255, 255, 0.16); color: #4ade87; }
+.yts-twitch-btn svg { width: 2rem; height: 2rem; display: block; }
+.yts-twitch-btn .yts-rec-dot { opacity: 0; }
+.yts-twitch-btn.recording { color: #eb0400; }
+.yts-twitch-btn.recording .yts-arrows { opacity: 0; }
+.yts-twitch-btn.recording .yts-rec-dot {
+  opacity: 1;
+  animation: yts-rec-pulse 1.2s ease-in-out infinite;
+}
+.yts-twitch-btn .yts-rec-time {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+  color: #eb0400;
+}
+.yts-twitch-btn .yts-rec-time:empty { display: none; }
+
+@keyframes yts-rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+#yts-twitch-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  max-width: 360px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(20, 20, 20, 0.95);
+  color: #fff;
+  font: 13px/1.4 Inter, Roobert, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+#yts-twitch-toast.show { opacity: 1; transform: translateY(0); }
+
+/* Quality menu for clips and VODs; anchored above the player button. */
+#yts-twitch-menu {
+  position: fixed;
+  z-index: 2147483647;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(20, 20, 20, 0.97);
+  color: #fff;
+  font: 13px/1.4 Inter, Roobert, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.yts-twitch-menu-title {
+  padding: 6px 10px 8px;
+  opacity: 0.62;
+  font-size: 12px;
+}
+.yts-twitch-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.yts-twitch-menu-item:hover { background: rgba(255, 255, 255, 0.12); }

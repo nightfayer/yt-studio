@@ -1,0 +1,2166 @@
+// Isolated-world UI and the only bridge between the page hook and extension APIs.
+(() => {
+  const BUTTON_ID = 'yts-download-btn';
+  const IS_MUSIC = location.hostname === 'music.youtube.com';
+  // Evaluated per call: YouTube moves between /watch and /shorts without a
+  // page load, and the reel feed rewrites the URL on every swipe.
+  const SHORTS_PATH = /^\/shorts\/[A-Za-z0-9_-]{6,}/;
+  const IS_SHORTS = () => !IS_MUSIC && SHORTS_PATH.test(location.pathname);
+  const IS_DOWNLOADABLE_PAGE = () => location.pathname === '/watch' || IS_SHORTS();
+  const TO_HOOK = '__yts_to_hook';
+  const FROM_HOOK = '__yts_from_hook';
+  const TO_UI = '__yts_to_ui';
+  const FROM_UI = '__yts_from_ui';
+  const RELAYED_MESSAGES = new Set(['yts-log', 'yts-fetch-caption']);
+  const TRANSFER_CHUNK_SIZE = 4 * 1024 * 1024;
+
+  let requestSequence = 1;
+  let menu;
+  let menuOpening = false;
+  let downloadInProgress = false;
+  let toastHideTimer;
+  let buttonFrame;
+  const pendingRequests = new Map();
+
+  function postToPage(payload) {
+    window.postMessage(payload, location.origin);
+  }
+
+  // Mirrors the page hook's element resolution. A Shorts page holds both an
+  // empty leftover #movie_player and the reel's real #shorts-player, and the
+  // feed keeps neighbouring reels mounted, so the first <video> in document
+  // order is not reliably the one being watched.
+  function activeMediaElement() {
+    const reel = document.getElementById('shorts-player');
+    const watch = document.getElementById('movie_player');
+    const host = IS_SHORTS() ? (reel || watch) : (watch || reel);
+    return host?.querySelector('video') || document.querySelector('video');
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.origin !== location.origin || !event.data) return;
+    const data = event.data;
+
+    if (data[TO_UI] === true) {
+      const { reqId, msg } = data;
+      if (!msg || !RELAYED_MESSAGES.has(msg.t)) return;
+      chrome.runtime.sendMessage(msg)
+        .then((response) => {
+          if (Number.isSafeInteger(reqId)) postToPage({ [FROM_UI]: true, reqId, ok: true, resp: response });
+        })
+        .catch((error) => {
+          if (Number.isSafeInteger(reqId)) {
+            postToPage({ [FROM_UI]: true, reqId, ok: false, error: String(error?.message || error) });
+          }
+        });
+      return;
+    }
+
+    if (data[FROM_HOOK] !== true) return;
+    const pending = pendingRequests.get(data.reqId);
+    if (!pending) return;
+    if (data.progress != null && !data.done) {
+      pending.touch?.();
+      pending.onProgress?.(data);
+      return;
+    }
+    pendingRequests.delete(data.reqId);
+    clearTimeout(pending.timeout);
+    if (data.ok === false) {
+      const error = new Error(data.error || 'page hook failed');
+      error.details = data.details;
+      pending.reject(error);
+    } else pending.resolve(data);
+  });
+
+  // Hidden tabs align timers to 1 s; anything past this is a suspended page.
+  // The grace count is bounded so a chained, minute-aligned timer in a long
+  // hidden tab cannot keep a genuinely dead hook alive forever.
+  const HOOK_SUSPEND_SLACK_MS = 10_000;
+  const HOOK_RESUME_GRACE_MS = 20_000;
+  const HOOK_MAX_RESUME_GRACES = 3;
+
+  function callHook(cmd, payload = {}, onProgress) {
+    return new Promise((resolve, reject) => {
+      const reqId = requestSequence++;
+      // `sabr-drain` deliberately blocks until bytes exist instead of answering
+      // empty, so its budget is the page's own wait plus room for a slow answer.
+      const HOOK_TIMEOUTS = {
+        download: 70_000, 'live-start': 180_000, subtitles: 120_000,
+        'sabr-start': 60_000, 'sabr-drain': 90_000,
+      };
+      const timeoutMs = HOOK_TIMEOUTS[cmd] || 15_000;
+      let timeout;
+      // The hook runs on this renderer's main thread. A frozen background tab
+      // or a long synchronous step in the page stops both, and on resume this
+      // timer fires at once, counting the pause as the hook's silence. A
+      // 5.4-hour MP3 died that way as its prefix repair began (report of
+      // 2026-09-18): the hook's next line arrived 3 ms before the timeout, which
+      // itself came 3.6 min past due. A timer that late measured the pause, so
+      // it gets a short stretch of running time for the queued replies instead.
+      let gracesLeft = HOOK_MAX_RESUME_GRACES;
+      const arm = (delayMs) => {
+        clearTimeout(timeout);
+        const dueAt = Date.now() + delayMs;
+        timeout = setTimeout(() => {
+          if (!pendingRequests.has(reqId)) return;
+          const lateMs = Date.now() - dueAt;
+          if (lateMs > HOOK_SUSPEND_SLACK_MS && gracesLeft > 0) {
+            gracesLeft -= 1;
+            void sendRuntimeMessage({
+              t: 'yts-log', tag: 'hook',
+              text: `${cmd}: timeout fired ${Math.round(lateMs / 1000)} s late (tab was suspended);`
+                + ` waiting ${HOOK_RESUME_GRACE_MS / 1000} s more; gracesLeft= ${gracesLeft}`,
+            }).catch(() => {});
+            arm(HOOK_RESUME_GRACE_MS);
+            return;
+          }
+          pendingRequests.delete(reqId);
+          reject(new Error(cmd === 'download'
+            ? 'захват медиаданных не отвечает более 70 секунд'
+            : `page hook timed out (${cmd})`));
+        }, delayMs);
+        const pending = pendingRequests.get(reqId);
+        if (pending) pending.timeout = timeout;
+      };
+      const touch = () => {
+        gracesLeft = HOOK_MAX_RESUME_GRACES;
+        arm(timeoutMs);
+      };
+      pendingRequests.set(reqId, { resolve, reject, onProgress, timeout, touch });
+      touch();
+      postToPage({ [TO_HOOK]: true, cmd, reqId, ...payload });
+    });
+  }
+
+  async function reportError(context, error, details) {
+    const text = String(error?.stack || error?.message || error);
+    console.error('[YT Studio]', error);
+    return sendWorkerMessage({ t: 'yts-error', context, error: text, details }, 30_000).catch(() => null);
+  }
+
+  function sendRuntimeMessage(message, timeoutMs) {
+    if (!timeoutMs) return chrome.runtime.sendMessage(message);
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`extension message timed out (${message.t})`)), timeoutMs);
+    });
+    return Promise.race([chrome.runtime.sendMessage(message), timeout]).finally(() => clearTimeout(timer));
+  }
+
+  // The MV3 service worker can be mid-shutdown when a message arrives; the
+  // send then fails even though the worker is back a moment later. Only
+  // idempotent worker-side requests may be retried — a repeated yts-chunk
+  // would duplicate track data.
+  const WORKER_RETRY_DELAYS = [150, 400, 1_000, 2_500];
+
+  function isWorkerAsleep(error) {
+    return /could not establish connection|receiving end does not exist|message port closed/i
+      .test(String(error?.message || error));
+  }
+
+  async function sendWorkerMessage(message, timeoutMs) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await sendRuntimeMessage(message, timeoutMs);
+      } catch (error) {
+        if (attempt >= WORKER_RETRY_DELAYS.length || !isWorkerAsleep(error)) throw error;
+        await new Promise((resolve) => { setTimeout(resolve, WORKER_RETRY_DELAYS[attempt]); });
+      }
+    }
+  }
+
+  function createElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text != null) element.textContent = text;
+    return element;
+  }
+
+
+  // The brand icon everywhere: a perfectly round ring with two equilateral
+  // down-arrows that touch (the upper apex meets the lower triangle's edge).
+  function createCircleIcon() {
+    const namespace = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(namespace, 'svg');
+    svg.setAttribute('viewBox', '0 0 36 36');
+    svg.setAttribute('aria-hidden', 'true');
+    const ring = document.createElementNS(namespace, 'circle');
+    ring.setAttribute('cx', '18');
+    ring.setAttribute('cy', '18');
+    ring.setAttribute('r', '16.9');
+    ring.setAttribute('fill', 'none');
+    ring.setAttribute('stroke', '#35d477');
+    ring.setAttribute('stroke-width', '2.2');
+    const arrows = document.createElementNS(namespace, 'path');
+    arrows.setAttribute('fill', '#35d477');
+    arrows.setAttribute('d', 'M10.8 5.53h14.4L18 18z M10.8 18h14.4L18 30.47z');
+    svg.append(ring, arrows);
+    return svg;
+  }
+
+  // The Shorts variant deliberately does not share .yts-download-btn: that
+  // class absolutely-centres the icon on the whole button, which for a button
+  // with a caption underneath pushes the icon below the middle of its circle.
+  const VARIANT_CLASS = {
+    player: 'ytp-button yts-download-btn',
+    music: 'yts-download-btn yts-music-btn',
+    shorts: 'yts-shorts-btn',
+  };
+
+  function createButton(variant) {
+    const button = createElement('button', VARIANT_CLASS[variant] || VARIANT_CLASS.player);
+    button.id = BUTTON_ID;
+    button.type = 'button';
+    button.dataset.ytsVariant = variant;
+    button.title = 'YTS (YT Studio)';
+    button.setAttribute('aria-label', button.title);
+    if (variant === 'shorts') {
+      // Matches the shape of its neighbours in the reel action column: a round
+      // tonal button with a caption underneath.
+      const circle = createElement('span', 'yts-shorts-circle');
+      circle.append(createCircleIcon());
+      button.append(circle, createElement('span', 'yts-shorts-label', 'YTS'));
+    } else {
+      button.append(createCircleIcon());
+    }
+    button.addEventListener('click', openMenu);
+    return button;
+  }
+
+  // Where the button belongs on the current page. One entry per surface: adding
+  // another site later means adding a case here and the matching element lookup
+  // in the page hook — nothing else in the UI is site-aware.
+  function mountTarget() {
+    if (IS_MUSIC) {
+      // The Music player bar keeps its right-hand controls (volume, repeat…)
+      // in ytmusic-player-bar; the button sits immediately left of the volume.
+      const bar = document.querySelector('ytmusic-player-bar');
+      const volume = bar?.querySelector('tp-yt-paper-icon-button.volume, #volume-slider ~ tp-yt-paper-icon-button, .volume');
+      if (volume?.parentElement) return { parent: volume.parentElement, anchor: volume, variant: 'music' };
+      const rightControls = bar?.querySelector('.right-controls-buttons');
+      return rightControls ? { parent: rightControls, anchor: null, variant: 'music' } : null;
+    }
+    if (IS_SHORTS()) {
+      // Right-hand action column of the reel that currently owns the player —
+      // the feed keeps neighbouring reels mounted, and only the watched one
+      // holds #shorts-player. The button goes above «Нравится».
+      const reel = document.getElementById('shorts-player')?.closest('ytd-reel-video-renderer');
+      const actions = reel?.querySelector('reel-action-bar-view-model')
+        || document.querySelector('reel-action-bar-view-model');
+      return actions ? { parent: actions, anchor: null, variant: 'shorts' } : null;
+    }
+    const controls = document.querySelector('.ytp-right-controls');
+    return controls ? { parent: controls, anchor: null, variant: 'player' } : null;
+  }
+
+  let mountedVideoId = null;
+
+  function ensureButton() {
+    // Swiping the Shorts feed replaces the video without a navigation event; an
+    // open menu would keep offering the previous reel's qualities.
+    const currentVideoId = videoIdFromLocation();
+    if (currentVideoId !== mountedVideoId) {
+      mountedVideoId = currentVideoId;
+      if (menu) closeMenu();
+    }
+    let button = document.getElementById(BUTTON_ID);
+    if (!IS_DOWNLOADABLE_PAGE()) {
+      button?.remove();
+      return;
+    }
+    const target = mountTarget();
+    if (!target) return;
+    // anchor null means "first in the container"; already-correct placement
+    // must not re-insert on every mutation tick.
+    const placed = button
+      && button.dataset.ytsVariant === target.variant
+      && button.parentElement === target.parent
+      && (target.anchor ? button.nextElementSibling === target.anchor
+        : target.parent.firstElementChild === button);
+    if (placed) return;
+    if (button && button.dataset.ytsVariant !== target.variant) {
+      button.remove();
+      button = null;
+    }
+    if (!button) button = createButton(target.variant);
+    if (target.anchor) target.parent.insertBefore(button, target.anchor);
+    else target.parent.prepend(button);
+  }
+
+  function scheduleButton() {
+    if (buttonFrame) return;
+    // requestAnimationFrame does not fire in a hidden tab, so a video opened in
+    // a background tab has no button at all until it is looked at — and the
+    // playlist queue resumes in exactly such a tab. The timer is only the
+    // fallback; a visible tab still mounts on the next frame.
+    if (document.visibilityState === 'hidden') {
+      buttonFrame = setTimeout(() => {
+        buttonFrame = undefined;
+        ensureButton();
+      }, 250);
+      return;
+    }
+    buttonFrame = requestAnimationFrame(() => {
+      buttonFrame = undefined;
+      ensureButton();
+    });
+  }
+
+  function closeMenu() {
+    menu?.remove();
+    menu = undefined;
+    document.removeEventListener('click', closeMenuOnOutsideClick, true);
+  }
+
+  function closeMenuOnOutsideClick(event) {
+    if (menu && !menu.contains(event.target) && !event.target.closest?.(`#${BUTTON_ID}`)) closeMenu();
+  }
+
+  function createHeading(text) {
+    return createElement('div', 'yts-menu-head', text);
+  }
+
+  function createBrandHeading(updateState) {
+    const heading = createElement('div', 'yts-menu-head yts-brand-head');
+    const label = createElement('span');
+    const version = chrome.runtime.getManifest().version;
+    const link = createElement('a', null, 't.me/yts_txt');
+    link.href = 'https://t.me/yts_txt';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.addEventListener('click', () => closeMenu());
+    label.append(`YT Studio v${version} | `, link);
+    heading.append(label);
+    if (updateState?.available) {
+      const updateLink = createElement('a', 'yts-update-link', 'Доступно обновление');
+      updateLink.href = updateState.releaseUrl || 'https://github.com/nightfayer/yt-studio/releases';
+      updateLink.target = '_blank';
+      updateLink.rel = 'noopener noreferrer';
+      updateLink.title = `Вышла версия ${updateState.latest || ''} — открыть страницу релиза`.trim();
+      updateLink.addEventListener('click', () => closeMenu());
+      heading.append(updateLink);
+    }
+    return heading;
+  }
+
+  function setItemLabel(item, title, description) {
+    item.append(createElement('b', null, title));
+    if (description) item.append(' ', createElement('span', 'yts-ext', description));
+  }
+
+  // Every audio download is format 'mp3' for the page hook (identical capture
+  // path); audioFormat only changes how the offscreen encoder packages it.
+  // The list is built per-video: passthrough of the real source codec first,
+  // then re-encodes ordered by descending quality. YouTube sources are always
+  // lossy (Opus/AAC), so lossless containers (FLAC/WAV) are never offered.
+  // Where YouTube audio comes over SABR (AAC 140) rather than the capture.
+  function sabrCarriesAudio(info) {
+    return !IS_MUSIC && !IS_SHORTS() && !info?.isLive;
+  }
+
+  function audioFormatsFor(info) {
+    const codec = info?.audioSource?.codec || '';
+    const bitrate = Number(info?.audioSource?.bitrateKbps) || 0;
+    const codecLabel = codec === 'aac' ? 'AAC' : (codec === 'vorbis' ? 'Vorbis' : 'Opus');
+    const originalExtension = codec === 'aac' ? '.m4a' : (codec === 'vorbis' ? '.ogg' : '.opus');
+    const formats = [{
+      id: 'original',
+      title: `Оригинал (${codecLabel})`,
+      note: `как в источнике${bitrate ? `, ~${bitrate} кбит/с` : ''} · без перекодирования`,
+      extension: originalExtension,
+    }];
+    // Re-encoding AAC back into AAC would only lose quality: when the source
+    // is AAC the passthrough above already produces the best possible .m4a.
+    // On a watch page the file comes over SABR as AAC, so M4A is that stream
+    // re-wrapped, in seconds; elsewhere (Music, Shorts, live) the capture
+    // still records Opus and M4A is an encode.
+    if (codec !== 'aac') {
+      const rewrapped = sabrCarriesAudio(info);
+      formats.push({
+        id: 'm4a',
+        title: 'M4A (AAC)',
+        note: rewrapped ? 'AAC ~128 кбит/с · без перекодирования · с обложкой' : '256 кбит/с · с обложкой',
+        extension: '.m4a',
+      });
+    }
+    formats.push({ id: 'mp3', title: 'MP3', note: 'VBR V0, ~245 кбит/с · с обложкой', extension: '.mp3' });
+    return formats;
+  }
+
+  function audioFormatMeta(audioFormat, info) {
+    return audioFormatsFor(info).find((entry) => entry.id === audioFormat)
+      || { id: audioFormat, title: String(audioFormat || 'mp3').toUpperCase(), extension: '.mp3' };
+  }
+
+  function addDownloadItems(info, { videoAllowed = true } = {}) {
+    if (videoAllowed) {
+      menu.append(createHeading('Видео'));
+      const heights = [...new Set(info.heights || [])].sort((a, b) => b - a);
+      for (const height of heights) {
+        const item = createElement('div', 'yts-menu-item');
+        setItemLabel(item, `${height}p`, 'MP4 video');
+        item.addEventListener('click', () => {
+          closeMenu();
+          startDownload({ format: 'mp4', height }, info);
+        });
+        menu.append(item);
+      }
+    }
+
+    menu.append(createHeading('Аудио'));
+    for (const audio of audioFormatsFor(info)) {
+      const item = createElement('div', 'yts-menu-item');
+      setItemLabel(item, audio.title, audio.note);
+      item.addEventListener('click', () => {
+        closeMenu();
+        startDownload({ format: 'mp3', height: null, audioFormat: audio.id }, info);
+      });
+      menu.append(item);
+    }
+  }
+
+  function addLiveSection(info) {
+    menu.append(createHeading('Прямая трансляция'));
+    const options = [
+      { from: 'start', title: 'Записать эфир с начала', note: 'докачает DVR-буфер быстрее реального времени и продолжит запись' },
+      { from: 'now', title: 'Записать с текущего момента', note: 'запись до конца эфира или до остановки' },
+    ];
+    for (const option of options) {
+      const item = createElement('div', 'yts-menu-item');
+      setItemLabel(item, option.title, option.note);
+      item.addEventListener('click', () => {
+        closeMenu();
+        void startLiveRecording(info, option.from);
+      });
+      menu.append(item);
+    }
+  }
+
+  function addPlaylistSection(info, items) {
+    menu.append(createHeading('Плейлист'));
+    const item = createElement('div', 'yts-menu-item');
+    setItemLabel(item, 'Скачать плейлист…', `${items.length} видео, выбор в списке`);
+    item.addEventListener('click', () => {
+      closeMenu();
+      openPlaylistPicker(info, items);
+    });
+    menu.append(item);
+  }
+
+  function addSubtitleItems(info, availability) {
+    menu.append(createHeading('Субтитры'));
+    if (!availability?.available) {
+      const item = createElement('div', 'yts-menu-item disabled');
+      setItemLabel(item, '.srt', 'недоступны');
+      item.title = 'Субтитры недоступны для этого видео';
+      menu.append(item);
+      return;
+    }
+
+    const language = availability.lang || 'доступный';
+    const formats = [
+      ['.srt', 'srt', 'SRT (с тайм-кодами)'],
+      ['.txt', 'txt', 'простой текст (без тайм-кодов)'],
+    ];
+    for (const [extension, format, description] of formats) {
+      const item = createElement('div', 'yts-menu-item');
+      setItemLabel(item, extension, `${language} · ${description}`);
+      item.addEventListener('click', () => {
+        closeMenu();
+        downloadSubtitles(info, format);
+      });
+      menu.append(item);
+    }
+  }
+
+  function addRadioSelector(heading, storageKey, options, current) {
+    menu.append(createHeading(heading));
+    let selected = current;
+    const rows = options.map((option) => {
+      const row = createElement('div', `yts-menu-radio${selected === option.value ? ' sel' : ''}`);
+      const text = createElement('span', 'yts-radio-txt');
+      text.append(createElement('b', null, option.title), createElement('i', null, option.note));
+      row.append(createElement('span', 'yts-dot'), text);
+      row.addEventListener('click', (event) => {
+        event.stopPropagation();
+        selected = option.value;
+        chrome.storage.local.set({ [storageKey]: selected }).catch((error) => reportError('ui/settings', error));
+        rows.forEach((item, index) => item.classList.toggle('sel', options[index].value === selected));
+      });
+      return row;
+    });
+    menu.append(...rows);
+  }
+
+  function addFormatSelector(transcode) {
+    addRadioSelector('Кодек видео', 'transcode', [
+      { value: false, title: 'Оригинал (без перекодирования)', note: 'исходное качество и минимальный размер — рекомендуется' },
+      { value: true, title: 'Сжатый MP4 (H.264)', note: 'аппаратное перекодирование, почти без потерь; для старых плееров и ТВ' },
+    ], Boolean(transcode));
+  }
+
+  async function openMenu(event) {
+    event.stopPropagation();
+    if (menu) {
+      closeMenu();
+      return;
+    }
+    if (menuOpening) return;
+    menuOpening = true;
+
+    try {
+      const [info, availability, settings, updateStored] = await Promise.all([
+        callHook('info'),
+        callHook('subs-available'),
+        chrome.storage.local.get(['transcode']),
+        chrome.storage.local.get('yts_update').catch(() => ({})),
+      ]);
+      menu = createElement('div', 'yts-menu');
+      menu.append(createBrandHeading(updateStored?.yts_update));
+      if (info.isLive) {
+        addLiveSection(info);
+      } else {
+        // Music "songs" (art tracks) have no real footage — the video stream is
+        // a static cover rendered as video, so only audio options make sense.
+        const artTrackOnly = IS_MUSIC && info.musicVideoType === 'MUSIC_VIDEO_TYPE_ATV';
+        addDownloadItems(info, { videoAllowed: !artTrackOnly });
+        const playlistItems = playlistIdFromLocation() ? scrapePlaylistItems() : [];
+        if (playlistItems.length > 1) addPlaylistSection(info, playlistItems);
+        addSubtitleItems(info, availability);
+        if (!artTrackOnly) addFormatSelector(settings.transcode);
+      }
+      document.body.append(menu);
+
+      const buttonRect = document.getElementById(BUTTON_ID)?.getBoundingClientRect();
+      if (buttonRect) {
+        menu.style.right = `${Math.max(8, window.innerWidth - buttonRect.right)}px`;
+        // Upward from the button is the default — that is where the anchor sits
+        // in the player control bar. The Shorts action column is mid-screen, so
+        // fall back to dropping the menu downward when there is no room above.
+        const height = menu.getBoundingClientRect().height;
+        if (buttonRect.top - height - 8 >= 8) {
+          menu.style.bottom = `${window.innerHeight - buttonRect.top + 8}px`;
+        } else {
+          menu.style.top = `${Math.max(8, Math.min(buttonRect.bottom + 8, window.innerHeight - height - 8))}px`;
+        }
+      }
+      setTimeout(() => document.addEventListener('click', closeMenuOnOutsideClick, true));
+    } catch (error) {
+      const notification = getToast();
+      notification.set(`Ошибка: ${error.message || error}`, 1);
+      notification.hide(6000);
+      await reportError('ui/menu', error);
+    } finally {
+      menuOpening = false;
+    }
+  }
+
+  function getToast() {
+    let box = document.getElementById('yts-toast');
+    if (!box) {
+      box = createElement('div');
+      box.id = 'yts-toast';
+      const bar = createElement('div', 'yts-toast-bar');
+      bar.append(createElement('i'));
+      const cancelButton = createElement('button', 'yts-toast-cancel', 'Отменить загрузку');
+      cancelButton.type = 'button';
+      cancelButton.hidden = true;
+      cancelButton.addEventListener('click', () => box.__ytsCancel?.());
+      box.append(createElement('span', 'yts-toast-txt'), bar, createElement('div', 'yts-toast-stages'), cancelButton);
+      document.body.append(box);
+    }
+    const text = box.querySelector('.yts-toast-txt');
+    const legacyBar = box.querySelector(':scope > .yts-toast-bar');
+    const progress = legacyBar.querySelector('i');
+    const stages = box.querySelector('.yts-toast-stages');
+    const cancel = box.querySelector('.yts-toast-cancel');
+    const hideCancel = () => {
+      box.__ytsCancel = null;
+      cancel.hidden = true;
+    };
+    return {
+      set(message, fraction = 0) {
+        clearTimeout(toastHideTimer);
+        text.textContent = message;
+        stages.replaceChildren();
+        stages.classList.remove('show');
+        legacyBar.hidden = false;
+        progress.style.width = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
+        hideCancel();
+        box.classList.add('show');
+      },
+      setCancel(handler, label = 'Отменить загрузку') {
+        if (!handler) {
+          hideCancel();
+          return;
+        }
+        box.__ytsCancel = handler;
+        cancel.textContent = label;
+        cancel.hidden = false;
+      },
+      beginStages(message, definitions) {
+        clearTimeout(toastHideTimer);
+        text.textContent = message;
+        legacyBar.hidden = true;
+        stages.replaceChildren();
+        for (const definition of definitions) {
+          const row = createElement('div', 'yts-stage queued');
+          row.dataset.stage = definition.id;
+          const header = createElement('div', 'yts-stage-head');
+          header.append(createElement('span', 'yts-stage-label', definition.label), createElement('span', 'yts-stage-value', 'ожидание'));
+          const bar = createElement('div', 'yts-stage-bar');
+          bar.append(createElement('i'));
+          row.append(header, bar);
+          stages.append(row);
+        }
+        stages.classList.add('show');
+        box.classList.add('show');
+      },
+      stage(id, fraction, state = 'active', label) {
+        const row = stages.querySelector(`[data-stage="${id}"]`);
+        if (!row) return;
+        row.className = `yts-stage ${state}`;
+        if (label) row.querySelector('.yts-stage-label').textContent = label;
+        const value = row.querySelector('.yts-stage-value');
+        const bar = row.querySelector('.yts-stage-bar i');
+        if (Number.isFinite(fraction)) {
+          const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+          value.textContent = state === 'done' ? 'готово' : `${percent}%`;
+          bar.style.width = `${percent}%`;
+        } else {
+          value.textContent = state === 'active' ? 'запуск…' : (state === 'error' ? 'ошибка' : 'ожидание');
+          bar.style.width = state === 'done' ? '100%' : '0%';
+        }
+      },
+      hide(delay = 0) {
+        clearTimeout(toastHideTimer);
+        toastHideTimer = setTimeout(() => box.classList.remove('show'), delay);
+      },
+    };
+  }
+
+  // Truncation is by CODE POINT, not by UTF-16 unit: `String.slice(0, 120)` cuts
+  // a title whose 120th unit is half of a surrogate pair, and the lone surrogate
+  // left behind makes the whole name unusable — Chrome then silently names the
+  // file after the blob's UUID (`50b453d3-….m4a`) instead of failing. A title
+  // that strips down to nothing does the same, hence the second fallback.
+  function safeFilename(value) {
+    const cleaned = String(value || 'video')
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const points = [...cleaned];
+    return (points.length > 120 ? points.slice(0, 120).join('').trim() : cleaned) || 'video';
+  }
+
+  function formatCueTime(seconds, separator) {
+    const value = Math.max(0, seconds);
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const wholeSeconds = Math.floor(value % 60);
+    const milliseconds = Math.floor((value - Math.floor(value)) * 1000);
+    const pad = (number, length = 2) => String(number).padStart(length, '0');
+    return `${pad(hours)}:${pad(minutes)}:${pad(wholeSeconds)}${separator}${pad(milliseconds, 3)}`;
+  }
+
+  function normalizeCues(cues) {
+    if (!Array.isArray(cues)) return [];
+    const sorted = cues
+      .filter((cue) => cue?.text?.trim())
+      .map((cue) => ({ start: Number(cue.start) || 0, end: Number(cue.end) || 0, text: cue.text.trim() }))
+      .sort((a, b) => a.start - b.start);
+
+    return sorted.map((cue, index) => {
+      const next = sorted[index + 1];
+      const minimumDuration = Math.max(1.2, Math.min(6, cue.text.length * 0.07));
+      if (next && next.start <= cue.start) next.start = cue.start + 0.5;
+      const end = next
+        ? Math.max(cue.start + minimumDuration, Math.min(next.start, cue.start + 5))
+        : Math.max(cue.start + minimumDuration, cue.end || cue.start + 4);
+      return { ...cue, end };
+    });
+  }
+
+  function buildTimedSubtitles(cues, format) {
+    const lines = format === 'vtt' ? ['WEBVTT', ''] : [];
+    normalizeCues(cues).forEach((cue, index) => {
+      if (format !== 'vtt') lines.push(String(index + 1));
+      const separator = format === 'vtt' ? '.' : ',';
+      lines.push(`${formatCueTime(cue.start, separator)} --> ${formatCueTime(cue.end, separator)}`);
+      lines.push(cue.text, '');
+    });
+    return `${lines.join('\r\n').replace(/(\r?\n)+$/, '')}\r\n`;
+  }
+
+  const SUBTITLE_OUTPUTS = Object.freeze({
+    srt: { extension: 'srt', mime: 'application/x-subrip', timed: true },
+    vtt: { extension: 'vtt', mime: 'text/vtt', timed: true },
+    txt: { extension: 'txt', mime: 'text/plain', timed: false },
+  });
+
+  async function downloadSubtitles(info, format) {
+    const notification = getToast();
+    notification.set(`Загружаю субтитры (${format || 'txt'})…`, 0.3);
+    try {
+      const output = SUBTITLE_OUTPUTS[format];
+      if (!output) throw new Error(`неизвестный формат субтитров: ${format}`);
+      const response = await callHook('subtitles');
+      const language = response.lang || 'txt';
+      if (output.timed && !response.cues?.length) {
+        throw new Error(`не удалось сформировать .${output.extension}: отсутствуют таймкоды`);
+      }
+      const content = output.timed ? buildTimedSubtitles(response.cues, output.extension) : response.text;
+      const filename = `${safeFilename(info.title)} [${language}].${output.extension}`;
+      const url = `data:${output.mime};charset=utf-8,${encodeURIComponent(`\uFEFF${content}`)}`;
+      const saved = await sendWorkerMessage({ t: 'yts-save', url, filename }, 30_000);
+      if (!saved?.ok) throw new Error(saved?.error || 'не удалось сохранить субтитры');
+      notification.set(`Готово: ${filename}`, 1);
+      notification.hide(4000);
+    } catch (error) {
+      notification.set(`Ошибка: ${error.message || error}`, 1);
+      notification.hide(6000);
+      await reportError('ui/subtitles', error, { format, videoId: info.videoId });
+    }
+  }
+
+  async function startDownload({ format, height, audioFormat = 'mp3' }, info, options = {}) {
+    const notification = getToast();
+    if (downloadInProgress) {
+      notification.set('Другая загрузка уже выполняется', 1);
+      notification.hide(4000);
+      return 'busy';
+    }
+    downloadInProgress = true;
+    if (!options.freshPageResume) await clearReloadGuard();
+
+    const isMp3 = format === 'mp3';
+    const primedMedia = activeMediaElement();
+    const requestedMediaState = options.restoreMediaState;
+    const primedState = primedMedia ? {
+      paused: typeof requestedMediaState?.paused === 'boolean'
+        ? requestedMediaState.paused : primedMedia.paused,
+      time: Number.isFinite(Number(requestedMediaState?.time))
+        ? Math.max(0, Number(requestedMediaState.time)) : primedMedia.currentTime,
+      muted: typeof requestedMediaState?.muted === 'boolean'
+        ? requestedMediaState.muted : primedMedia.muted,
+    } : null;
+    if (primedMedia && requestedMediaState && primedState) {
+      // A clean retry must capture the opening fragments before returning to
+      // the user's position. Restore the saved state only after the tracks have
+      // been received; applying it here made every retry begin around 20 s.
+      try { primedMedia.currentTime = 0; } catch (error) {}
+      try { primedMedia.muted = true; } catch (error) {}
+      primedMedia.pause();
+    }
+    if (IS_MUSIC && primedMedia && primedState) {
+      // ytmusic auto-advances to the next queue item when a playing track
+      // ends, and downloads seek near the end: every Music download runs
+      // paused and the track stays paused afterwards.
+      primedState.paused = true;
+      try { primedMedia.pause(); } catch (error) {}
+    }
+    let primedStateRestored = false;
+    let reloadScheduled = false;
+    const restorePrimedMedia = () => {
+      if (!primedMedia || !primedState || primedStateRestored) return;
+      primedStateRestored = true;
+      try { primedMedia.currentTime = primedState.time; } catch (error) {}
+      try { primedMedia.muted = primedState.muted; } catch (error) {}
+      if (primedState.paused) primedMedia.pause();
+      else primedMedia.play().catch(() => {});
+    };
+    const audioMeta = audioFormatMeta(audioFormat, info);
+    const label = isMp3 ? audioMeta.title : `${height}p`;
+    const processingLabel = isMp3 ? 'Кодирование аудио' : 'Склейка / кодирование';
+    notification.beginStages(`Подготовка ${label}…`, [
+      { id: 'capture', label: 'Получение сегментов' },
+      { id: 'engine', label: 'Запуск медиадвижка' },
+      { id: 'transfer', label: 'Передача и сборка' },
+      { id: 'process', label: processingLabel },
+    ]);
+    notification.stage('capture', 0, 'active');
+    notification.stage('engine', null, 'active');
+    let scaleDown = false;
+    const jobId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    // Declared out here so every exit path can stop the capture-time shipper.
+    let staging = null;
+
+    let cancelRequested = false;
+    notification.setCancel(() => {
+      if (cancelRequested) return;
+      cancelRequested = true;
+      notification.setCancel(null);
+      // Cancelling one item of a running playlist queue stops the whole queue.
+      void clearQueue();
+      try { sessionStorage.removeItem('yts_queue_token'); } catch (error) {}
+      document.getElementById('yts-queue')?.remove();
+      void callHook('download-cancel').catch(() => {});
+      if (IS_MUSIC) void callHook('music-mute', { mute: false }).catch(() => {});
+      void sendRuntimeMessage({ t: 'yts-abort', jobId }, 10_000).catch(() => {});
+    });
+
+    const onFfmpegProgress = (message) => {
+      // The SABR attempt runs under its own id; its encode progress is this
+      // download's progress too (a 5 h MP3 encodes for minutes).
+      if (message?.t !== 'yts-progress'
+        || (message.jobId !== jobId && message.jobId !== `${jobId}-sabr`)) return;
+      const value = Math.max(0, Math.min(1, message.value || 0));
+      const fallback = isMp3
+        ? 'Кодирование аудио'
+        : (scaleDown ? 'Уменьшение видео' : 'Склейка / кодирование');
+      notification.stage('process', value, value >= 1 ? 'done' : 'active', message.status || fallback);
+    };
+    chrome.runtime.onMessage.addListener(onFfmpegProgress);
+
+    try {
+      // SABR first: it is the only route that can hand over a whole track, and
+      // it costs seconds instead of the video's own length. Its own job id
+      // keeps a refusal from disturbing the capture job that may follow.
+      // Audio too, since 1.9. SABR serves AAC 140 (~128 kbit/s) where the
+      // capture recorded the player's Opus 251 (~130-160): a slightly weaker
+      // source for MP3/M4A, traded for a whole file in minutes instead of a
+      // capture as long as the video that loses its first seconds (B19). Opus
+      // over SABR is not an option: its init never comes (G16). "Оригинал"
+      // promises the source codec untouched, so it takes this route only when
+      // that codec is AAC; Opus stays on the capture.
+      const sabrAudio = isMp3 && sabrCarriesAudio(info)
+        && (audioFormat !== 'original' || info.audioSource?.codec === 'aac');
+      if (!IS_MUSIC && !IS_SHORTS() && !info.isLive && (format === 'mp4' || sabrAudio)) {
+        const viaSabr = await tryDownloadViaSabr({
+          jobId: `${jobId}-sabr`, info, height,
+          audioFormat: sabrAudio ? audioFormat : null,
+          notification,
+          isCancelled: () => cancelRequested,
+        });
+        if (viaSabr) {
+          restorePrimedMedia();
+          notification.setCancel(null);
+          notification.stage('engine', 1, 'done');
+          notification.stage('process', 1, 'done', isMp3 ? 'Кодирование аудио' : 'Склейка дорожек');
+          await clearReloadGuard();
+          notification.set(`Готово: ${viaSabr.filename}`, 1);
+          notification.hide(4000);
+          return true;
+        }
+        if (cancelRequested) {
+          notification.set('Загрузка отменена', 1);
+          notification.hide(4000);
+          return false;
+        }
+        notification.stage('capture', 0, 'active', 'Получение сегментов');
+      }
+      // Loading the wasm core is expensive. Start it in parallel with segment
+      // capture; actual ffmpeg execution still waits for a complete container.
+      const warmup = warmupMediaProcessor().then(
+        () => notification.stage('engine', 1, 'done'),
+        () => notification.stage('engine', null, 'queued', 'Повторный запуск медиадвижка'),
+      );
+      const { transcode = false } = await chrome.storage.local.get(['transcode']);
+      // Runs alongside the capture and hands over what has already been
+      // captured; stopped in every exit path below.
+      staging = isMp3 ? null : startTrackStaging(jobId);
+      let stagingReport = { failed: true, shippedBytes: 0 };
+      const captured = await callHook('download', {
+        height,
+        format,
+        end: Number(info.duration) || 0,
+        freshPageResume: Boolean(options.freshPageResume),
+        reloadCount: Math.max(0, Number(options.reloadCount) || 0),
+      }, (message) => {
+        // A direct download builds its tracks from googlevideo, not from the
+        // MSE capture, so the shipped bytes can never match the finished file —
+        // the byte-for-byte check refuses them every time. Shipping them anyway
+        // costs tens of megabytes of base64 over runtime messaging while the
+        // download itself is competing for the same main thread.
+        if (staging && (message.phase === 'direct-video' || message.phase === 'direct-audio')) {
+          void staging.stop();
+        }
+        let captureLabel = 'Получение сегментов';
+        if (message.paused) captureLabel = 'Приостановлено пользователем';
+        else if (message.phase === 'rendered-audio') captureLabel = 'Захват звука плеера (1×)';
+        else if (message.phase === 'rendered-video') captureLabel = 'Запись видео плеера (1×)';
+        else if (message.phase === 'direct-audio') captureLabel = 'Прямая загрузка аудио';
+        else if (message.phase === 'assembling') captureLabel = 'Проверка полученных дорожек';
+        else if (message.phase === 'buffering-prefix') captureLabel = 'Проверка крайних сегментов';
+        else if (message.phase === 'buffering-gap') captureLabel = 'Докачка пропущенного сегмента';
+        else if (message.phase === 'rendered-prefix') captureLabel = 'Восстановление только начала видео (1×)';
+        // Not a check: this phase re-records the track from the very beginning,
+        // which looks exactly like a second download — and reads as a bug when
+        // the label promises an inspection.
+        else if (message.phase === 'mse-sequential-video') captureLabel = 'Пропуск в видео — перезаписываю дорожку с начала';
+        notification.stage('capture', message.progress, message.progress >= 1 ? 'done' : 'active', captureLabel);
+      });
+      if (staging) stagingReport = await staging.stop();
+      restorePrimedMedia();
+      // The hook may have finished a phase without a cancellation checkpoint;
+      // never save a file the user has already cancelled.
+      if (cancelRequested) {
+        const cancelledError = new Error('загрузка отменена пользователем');
+        cancelledError.details = { cancelled: true };
+        throw cancelledError;
+      }
+      notification.stage('capture', 1, 'done');
+      // Transfer/processing cannot be interrupted mid-ffmpeg; hide the button.
+      notification.setCancel(null);
+
+      const actualHeight = !isMp3 && Number(captured.actualHeight) > 0 ? Number(captured.actualHeight) : height;
+      scaleDown = !isMp3 && actualHeight > height;
+      const unavailableHigherQuality = !isMp3 && actualHeight < height;
+      const outputHeight = isMp3 ? null : (scaleDown ? height : actualHeight);
+      const shouldTranscode = isMp3 || Boolean(transcode) || scaleDown || Boolean(captured.forceTranscode);
+      const processStatus = isMp3
+        ? 'Кодирование аудио'
+        : (scaleDown
+          ? `Уменьшение ${actualHeight}p до ${height}p`
+          : (unavailableHigherQuality
+            ? `Склейка ${actualHeight}p без апскейлинга`
+            : (shouldTranscode ? 'Перекодирование в H.264/AAC' : 'Склейка дорожек')));
+
+      const extension = isMp3 ? audioMeta.extension : '.mp4';
+      const filename = `${safeFilename(info.title)}${isMp3 ? '' : ` [${outputHeight}p]`}${extension}`;
+      notification.stage('transfer', 0, 'active', 'Передача и сборка');
+      // A track counts as staged only if the hook verified the shipped stream
+      // against the finished file AND the tail captured after the last drain
+      // reached offscreen too.
+      const staged = { audio: false, video: false };
+      if (!stagingReport.failed) {
+        for (const [track, key] of [['audio', '_tailA'], ['video', '_tailV']]) {
+          if (!captured.staged?.[track]) continue;
+          const tail = captured[key];
+          staged[track] = tail?.byteLength ? await stageBuffer(jobId, track, tail) : true;
+        }
+      }
+      const job = {
+        jobId,
+        format,
+        audioFormat: isMp3 ? audioFormat : null,
+        audioQuality: 'best',
+        videoId: info.videoId || '',
+        video: isMp3 ? null : captured._v,
+        videoPrefix: isMp3 ? null : captured._vp,
+        audio: captured._a,
+        videoMime: captured.video?.mime,
+        videoPrefixMime: captured.videoPrefix?.mime,
+        videoPrefixBoundary: Number(captured.videoPrefix?.boundary) || 0,
+        audioMime: captured.audio?.mime,
+        audioCaptureRate: Number(captured.audio?.captureRate) || 1,
+        filename,
+        transcode: shouldTranscode,
+        scaleHeight: scaleDown ? height : 0,
+        duration: Number(captured.duration) || Number(info.duration) || 0,
+        staged,
+      };
+      // The job object is now the only holder of the captured bytes; the
+      // transfer releases them as soon as offscreen has them. Keeping a second
+      // full copy alive here for the whole mux is what makes a long download
+      // feel like the browser froze — a 700 s video is ~164 MB per copy.
+      captured._v = null;
+      captured._vp = null;
+      captured._a = null;
+      const result = await muxViaOffscreen(job, (stage, fraction, state, stageLabel) => {
+        notification.stage(stage, fraction, state, stageLabel);
+      });
+      if (!result?.ok) {
+        const error = new Error(result?.error || 'не удалось собрать файл');
+        error.logged = Boolean(result?.logged);
+        error.recovered = Boolean(result?.recovered);
+        throw error;
+      }
+      notification.stage('engine', 1, 'done');
+      notification.stage('transfer', 1, 'done');
+      notification.stage('process', 1, 'done', processStatus);
+      await clearReloadGuard();
+      notification.set(`Готово: ${result.filename || filename}`, 1);
+      notification.hide(4000);
+      return true;
+    } catch (error) {
+      if (cancelRequested || error?.details?.cancelled) {
+        notification.set('Загрузка отменена', 1);
+        notification.hide(4000);
+        return false;
+      }
+      const reloadCount = Math.max(0, Number(options.reloadCount) || 0);
+      // Whether the automatic reload ran is invisible in reports otherwise: in
+      // the log of 2026-08-13 a download died after four exhausted refills and
+      // no reload followed, and nothing said whether it was refused, never
+      // requested, or failed while being scheduled.
+      if (error?.details?.reloadRequired || error?.details?.reason) {
+        void sendRuntimeMessage({
+          t: 'yts-log', tag: 'download',
+          text: `download failed; reloadRequired= ${Boolean(error?.details?.reloadRequired)}`
+            + ` reason= ${error?.details?.reason || 'unknown'} reloadCount= ${reloadCount}`
+            + ` willReload= ${Boolean(error?.details?.reloadRequired) && reloadCount < 2}`,
+        }).catch(() => {});
+      }
+      if (error?.details?.reloadRequired && reloadCount < 2) {
+        try {
+          const queued = await sendRuntimeMessage({
+            t: 'yts-set-reload-download',
+            pending: {
+              videoId: info.videoId,
+              title: info.title,
+              duration: Number(info.duration) || 0,
+              format,
+              audioFormat: isMp3 ? audioFormat : null,
+              height: isMp3 ? null : Number(height),
+              createdAt: Date.now(),
+              token: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+              playerState: primedState,
+              reloadCount: reloadCount + 1,
+            },
+          }, 10_000);
+          if (!queued?.ok) {
+            throw new Error(queued?.error || 'не удалось сохранить загрузку перед обновлением');
+          }
+          const reloadMessage = error.details.reason === 'edge-validation'
+            ? 'Крайние сегменты повреждены — заново скачиваю медиадорожку…'
+            : 'Обновляю страницу и автоматически продолжаю загрузку видео…';
+          notification.set(reloadMessage, 0);
+          // Keep the outgoing page at zero so YouTube creates the replacement
+          // MSE session from the opening segments. Restoring the user's old
+          // position in finally made the first post-MP3 pass start mid-stream;
+          // the second reload then worked only because recovery had moved it
+          // back to zero in the meantime.
+          reloadScheduled = true;
+          if (primedMedia) {
+            try { primedMedia.currentTime = 0; } catch (primeError) {}
+            try { primedMedia.muted = true; } catch (primeError) {}
+            try { primedMedia.pause(); } catch (primeError) {}
+          }
+          // YT Studio's own reload: the playlist queue must survive it, while a
+          // manual user reload (no flag) cancels the queue on the next load.
+          try { sessionStorage.setItem('yts_queue_nav', '1'); } catch (navError) {}
+          // Reload through the browser, not the page: YouTube's SPA router can
+          // intercept location.reload() and keep the wedged media session
+          // alive — a tab-level reload behaves like a manual F5. On Music the
+          // reload must target the track's own URL: a plain reload lets
+          // ytmusic reopen the queue on the NEXT track and strand the resume.
+          let reloadRequest = { t: 'yts-reload-tab' };
+          if (IS_MUSIC && info.videoId) {
+            const target = new URL('/watch', location.origin);
+            target.searchParams.set('v', info.videoId);
+            // Keep the playlist context: /watch?v= without list makes ytmusic
+            // start a RADIO for the track and wander off to other songs.
+            const listId = playlistIdFromLocation();
+            if (listId) target.searchParams.set('list', listId);
+            reloadRequest = { t: 'yts-navigate-tab', url: target.href };
+          }
+          setTimeout(() => {
+            sendRuntimeMessage(reloadRequest, 5_000)
+              .then((response) => { if (!response?.ok) location.reload(); })
+              .catch(() => location.reload());
+          }, 100);
+          return 'reload';
+        } catch (reloadError) {
+          void sendRuntimeMessage({
+            t: 'yts-log', tag: 'download',
+            text: `automatic reload could not be scheduled: ${String(reloadError?.message || reloadError)}`,
+          }).catch(() => {});
+          error = reloadError;
+        }
+      }
+      await clearReloadGuard();
+      const detail = String(error?.stack || error?.message || error);
+      // The file itself survived — this is a "finish the save" notice, not a
+      // failed download, and it needs long enough on screen to be read.
+      notification.set(error?.recovered
+        ? detail
+        : `Ошибка: ${detail.split('\n').slice(0, 3).join(' ').slice(0, 280)}`, 1);
+      notification.hide(error?.recovered ? 25_000 : 9000);
+      if (!error?.logged) await reportError('ui/download', error, {
+        format, height, videoId: info.videoId,
+        ...(error?.details ? { capture: error.details } : {}),
+      });
+      return false;
+    } finally {
+      // Also on the error paths: the pump keeps polling the hook otherwise.
+      if (staging) await staging.stop().catch(() => {});
+      notification.setCancel(null);
+      if (!reloadScheduled) restorePrimedMedia();
+      chrome.runtime.onMessage.removeListener(onFfmpegProgress);
+      downloadInProgress = false;
+    }
+  }
+
+  // Ships captured bytes to the muxer while the capture is still running, so
+  // the transfer no longer starts only after the last fragment. Everything sent
+  // here is provisional: assembly may still reorder or drop parts, so the hook
+  // re-checks at the end whether the finished track is exactly this stream, and
+  // offscreen adopts it only for the tracks it confirmed.
+  const STAGING_POLL_MS = 700;
+
+  async function stageBuffer(jobId, track, buffer) {
+    const bytes = new Uint8Array(buffer);
+    for (let offset = 0; offset < bytes.length; offset += TRANSFER_CHUNK_SIZE) {
+      const chunk = bytes.subarray(offset, Math.min(offset + TRANSFER_CHUNK_SIZE, bytes.length));
+      const response = await sendRuntimeMessage({
+        t: 'yts-stage', jobId, track, b64: encodeBase64(chunk),
+      }, 60_000).catch(() => null);
+      if (!response?.ok) return false;
+    }
+    return true;
+  }
+
+  function startTrackStaging(jobId) {
+    let stopped = false;
+    let failed = false;
+    let shippedBytes = 0;
+    let drains = 0;
+    let reason = '';
+    const openedAt = Date.now();
+    const give = (why) => { failed = true; reason = why; };
+    const pump = (async () => {
+      try {
+        const ensured = await sendWorkerMessage({ t: 'yts-ensure' }, 30_000);
+        if (!ensured?.ok) { give(`offscreen unavailable: ${ensured?.error || 'no answer'}`); return; }
+        // `yts-ensure` resolves as soon as the document is created, and the
+        // document registers its message listener only after ffmpeg.js and
+        // offscreen.js have both parsed. A request sent into that window is
+        // answered by nobody — the service worker sees an unknown type and
+        // returns nothing, so the send resolves with `undefined` instead of
+        // failing. That is exactly what killed staging in the field
+        // (`stage-open refused: no answer`), so wait the document out.
+        let opened = null;
+        for (let attempt = 0; attempt < 6 && !opened?.ok && !stopped; attempt++) {
+          if (attempt) await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+          opened = await sendRuntimeMessage({ t: 'yts-stage-open', jobId }, 10_000).catch(() => null);
+        }
+        if (!opened?.ok) { give(`stage-open refused: ${opened?.error || 'no answer'}`); return; }
+      } catch (error) { give(`setup failed: ${String(error?.message || error)}`); return; }
+      while (!stopped) {
+        await new Promise((resolve) => setTimeout(resolve, STAGING_POLL_MS));
+        if (stopped) return;
+        let drained;
+        try { drained = await callHook('drain-captured'); }
+        catch (error) { give(`drain failed: ${String(error?.message || error)}`); return; }
+        drains += 1;
+        for (const track of ['audio', 'video']) {
+          const buffer = drained?.tracks?.[track];
+          if (!buffer?.byteLength) continue;
+          if (!await stageBuffer(jobId, track, buffer)) { give(`stage chunk refused (${track})`); return; }
+          shippedBytes += buffer.byteLength;
+        }
+      }
+    })();
+    // Memoised: the download stops the pump as soon as it learns the flow will
+    // not use it, the normal exit stops it again, and `finally` stops it a
+    // third time. Without this each call would re-log and the report would show
+    // three "staging stopped" lines for one download.
+    let stopPromise = null;
+    return {
+      stop() {
+        if (stopPromise) return stopPromise;
+        stopPromise = (async () => {
+          stopped = true;
+          await pump.catch(() => {});
+          // Without this line a silent staging failure is invisible: the report
+          // only shows that nothing was staged, never why.
+          void sendRuntimeMessage({
+            t: 'yts-log', tag: 'transfer',
+            text: `staging stopped; shippedBytes= ${shippedBytes} drains= ${drains}`
+              + ` seconds= ${((Date.now() - openedAt) / 1000).toFixed(1)}`
+              + `${failed ? ` failed= ${reason}` : ''}`,
+          }).catch(() => {});
+          return { failed, shippedBytes };
+        })();
+        return stopPromise;
+      },
+    };
+  }
+
+  // Base64 is the only channel to offscreen — extension messaging serializes to
+  // JSON, so an ArrayBuffer would arrive as `{}` — which puts this function on
+  // the critical path of every download. Measured in Chrome 151 over a 4 MiB
+  // chunk: native toBase64 1.2 ms, String.fromCharCode.apply 25 ms, and the
+  // argument spread this used to be 155 ms. The spread alone was ~87 % of the
+  // transfer's CPU and capped the whole pipe at ~19 MB/s. All three outputs
+  // verified byte-identical.
+  const HAS_NATIVE_BASE64 = typeof Uint8Array.prototype.toBase64 === 'function';
+
+  function encodeBase64(bytes) {
+    if (!bytes.length) return '';
+    if (HAS_NATIVE_BASE64) return bytes.toBase64();
+    let binary = '';
+    // 0x8000 stays: apply() throws RangeError somewhere above 65 536 arguments.
+    const step = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += step) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, Math.min(offset + step, bytes.length)));
+    }
+    return btoa(binary);
+  }
+
+  async function warmupMediaProcessor() {
+    const ensured = await sendWorkerMessage({ t: 'yts-ensure' }, 30_000);
+    if (!ensured?.ok) throw new Error(ensured?.error || 'не удалось запустить обработчик медиа');
+    const warmed = await sendRuntimeMessage({ t: 'yts-warmup' }, 120_000);
+    if (!warmed?.ok) throw new Error(warmed?.error || 'не удалось загрузить медиадвижок');
+  }
+
+  async function muxViaOffscreen(job, onStage) {
+    const jobId = job.jobId;
+    let begun = false;
+    try {
+      const ensured = await sendWorkerMessage({ t: 'yts-ensure' }, 30_000);
+      if (!ensured?.ok) throw new Error(ensured?.error || 'не удалось запустить обработчик медиа');
+
+      const registration = await sendRuntimeMessage({ t: 'yts-register-job', jobId }, 10_000);
+      if (!registration?.ok || !Number.isInteger(registration.tabId)) {
+        throw new Error(registration?.error || 'не удалось определить вкладку загрузки');
+      }
+
+      const started = await sendRuntimeMessage({
+        t: 'yts-begin', jobId, tabId: registration.tabId,
+        filename: job.filename, format: job.format,
+        audioFormat: job.audioFormat, audioQuality: job.audioQuality,
+        videoId: job.videoId || '',
+        // Exact track sizes: the offscreen muxer starts before the transfer
+        // finishes and has to know where each file ends to parse it.
+        videoSize: job.video?.byteLength || 0,
+        audioSize: job.audio?.byteLength || 0,
+        // Which tracks offscreen already holds from the capture-time staging.
+        staged: job.staged || null,
+        videoMime: job.videoMime, audioMime: job.audioMime,
+        videoPrefixMime: job.videoPrefixMime,
+        videoPrefixBoundary: job.videoPrefixBoundary,
+        transcode: job.transcode, scaleHeight: job.scaleHeight, duration: job.duration,
+        audioCaptureRate: job.audioCaptureRate,
+      }, 30_000);
+      if (!started?.ok) throw new Error(started?.error || 'не удалось начать обработку');
+      begun = true;
+
+      const totalBytes = (job.video?.byteLength || 0)
+        + (job.videoPrefix?.byteLength || 0)
+        + (job.audio?.byteLength || 0);
+      let transferredBytes = 0;
+      onStage?.('transfer', 0, 'active', 'Передача и сборка');
+      const sendTrack = async (track, buffer) => {
+        if (!buffer) return;
+        const bytes = new Uint8Array(buffer);
+        for (let offset = 0; offset < bytes.length; offset += TRANSFER_CHUNK_SIZE) {
+          const chunk = bytes.subarray(offset, Math.min(offset + TRANSFER_CHUNK_SIZE, bytes.length));
+          const response = await sendRuntimeMessage({
+            t: 'yts-chunk', jobId, track, b64: encodeBase64(chunk),
+          }, 60_000);
+          if (!response?.ok) throw new Error(response?.error || `передача данных прервалась (${track})`);
+          transferredBytes += chunk.length;
+          onStage?.('transfer', totalBytes ? transferredBytes / totalBytes : 1, 'active', 'Передача и сборка');
+        }
+      };
+
+      // Track order is preserved inside each sender while audio/video transfers
+      // overlap. Offscreen keeps separate part arrays, so interleaving is safe.
+      const transferStartedAt = Date.now();
+      // A staged track is already in offscreen, byte for byte — sending it
+      // again would be the whole transfer done twice.
+      await Promise.all([
+        job.staged?.video ? null : sendTrack('video', job.video),
+        sendTrack('video-prefix', job.videoPrefix),
+        job.staged?.audio ? null : sendTrack('audio', job.audio),
+      ]);
+      // The offscreen document now owns every byte, and the mux that follows
+      // can run for minutes. Holding a second copy here for all that time is
+      // what makes a big download feel like the browser froze: a 700 s video
+      // meant ~164 MB in the page, the same again in offscreen, and the muxer
+      // output on top. Let the page copy go before the wait starts.
+      job.video = null;
+      job.videoPrefix = null;
+      job.audio = null;
+      void sendRuntimeMessage({
+        t: 'yts-log', tag: 'transfer',
+        text: `tracks handed to offscreen; bytes= ${totalBytes}`
+          + ` staged= ${job.staged?.audio ? 'audio' : ''}${job.staged?.video ? '+video' : ''}`
+          + ` seconds= ${((Date.now() - transferStartedAt) / 1000).toFixed(1)}`,
+      }).catch(() => {});
+      onStage?.('transfer', 1, 'done', 'Передача и сборка');
+      onStage?.('process', 0, 'active');
+      return await sendRuntimeMessage({ t: 'yts-finalize', jobId }, 2 * 60 * 60_000);
+    } catch (error) {
+      if (begun) await sendRuntimeMessage({ t: 'yts-abort', jobId }, 10_000).catch(() => {});
+      throw error;
+    }
+  }
+
+  // ---- SABR download: the page produces bytes, this world owns the job ------
+  // Unlike `muxViaOffscreen`, nothing is complete when this starts: the sizes
+  // come from the player response and the bytes arrive while the offscreen
+  // muxer is already parsing them. The page holds no more than its outbox, so
+  // a 300 MB video never exists in one piece anywhere on this side either.
+  async function downloadViaSabr(job, onStage, isCancelled) {
+    const jobId = job.jobId;
+    let begun = false;
+    const stopIfCancelled = () => {
+      if (!isCancelled?.()) return;
+      const cancelled = new Error('загрузка отменена пользователем');
+      cancelled.details = { cancelled: true };
+      throw cancelled;
+    };
+    try {
+      const ensured = await sendWorkerMessage({ t: 'yts-ensure' }, 30_000);
+      if (!ensured?.ok) throw new Error(ensured?.error || 'не удалось запустить обработчик медиа');
+      const registration = await sendRuntimeMessage({ t: 'yts-register-job', jobId }, 10_000);
+      if (!registration?.ok || !Number.isInteger(registration.tabId)) {
+        throw new Error(registration?.error || 'не удалось определить вкладку загрузки');
+      }
+
+      onStage?.('capture', 0, 'active', 'Прямая загрузка (SABR)');
+      const audioOnly = job.format === 'mp3';
+      const started = await callHook('sabr-start', { height: job.height, audioOnly, duration: job.duration });
+      const tracks = started?.tracks || {};
+      if ((!audioOnly && !tracks.video?.size) || !tracks.audio?.size) {
+        throw new Error('SABR не сообщил размеры дорожек');
+      }
+      const videoSize = audioOnly ? 0 : tracks.video.size;
+      const totalBytes = videoSize + tracks.audio.size;
+
+      const begin = await sendRuntimeMessage({
+        t: 'yts-begin', jobId, tabId: registration.tabId,
+        filename: job.filename(tracks), format: job.format,
+        audioFormat: job.audioFormat, audioQuality: job.audioQuality,
+        videoId: job.videoId || '',
+        videoSize,
+        audioSize: tracks.audio.size,
+        videoMime: audioOnly ? '' : (tracks.video.mime || 'video/mp4'),
+        audioMime: (audioOnly && tracks.audio.fullMime) || tracks.audio.mime || 'audio/mp4',
+        transcode: audioOnly,
+        duration: job.duration,
+      }, 30_000);
+      if (!begin?.ok) throw new Error(begin?.error || 'не удалось начать обработку');
+      begun = true;
+
+      let transferred = 0;
+      const transferredByTrack = { audio: 0, video: 0 };
+      for (;;) {
+        stopIfCancelled();
+        const drained = await callHook('sabr-drain');
+        if (drained?.error) throw new Error(drained.error);
+        for (const chunk of drained?.chunks || []) {
+          if (audioOnly && chunk.track !== 'audio') continue;
+          const bytes = new Uint8Array(chunk.bytes);
+          // The offscreen side takes 4 MiB at a time; a SABR segment can be
+          // bigger than that.
+          for (let offset = 0; offset < bytes.length; offset += TRANSFER_CHUNK_SIZE) {
+            const slice = bytes.subarray(offset, Math.min(offset + TRANSFER_CHUNK_SIZE, bytes.length));
+            const response = await sendRuntimeMessage({
+              t: 'yts-chunk', jobId, track: chunk.track, b64: encodeBase64(slice),
+            }, 60_000);
+            if (!response?.ok) throw new Error(response?.error || `передача данных прервалась (${chunk.track})`);
+            transferred += slice.length;
+            if (chunk.track in transferredByTrack) transferredByTrack[chunk.track] += slice.length;
+          }
+          onStage?.('capture', totalBytes ? transferred / totalBytes : 0, 'active', 'Прямая загрузка (SABR)');
+        }
+        if (drained?.done) break;
+      }
+      // I9 for the audio-only job: nothing downstream knows the declared size
+      // (the video job's muxer does), and an MP3 made from a short track is
+      // simply a shorter MP3.
+      if (audioOnly && transferredByTrack.audio !== tracks.audio.size) {
+        throw new Error(`SABR: аудиодорожка ${transferredByTrack.audio} байт из ${tracks.audio.size}`);
+      }
+      onStage?.('capture', 1, 'done');
+      onStage?.('transfer', 1, 'done');
+      onStage?.('process', 0, 'active');
+      // As on the capture route: a running ffmpeg cannot be cancelled, and the
+      // toast's abort names the base job id, not this one — a press here used
+      // to be ignored and followed by "Готово". Minutes long for a 5 h MP3.
+      job.onProcessing?.();
+      return await sendRuntimeMessage({ t: 'yts-finalize', jobId }, 2 * 60 * 60_000);
+    } catch (error) {
+      void callHook('sabr-cancel').catch(() => {});
+      if (begun) await sendRuntimeMessage({ t: 'yts-abort', jobId }, 10_000).catch(() => {});
+      throw error;
+    }
+  }
+
+  // Tried before the capture: it hands over the whole file at network speed and
+  // is the only path not capped at 60 s of media. Anything it cannot do — no
+  // intercepted template yet, an odd container, a refusal mid-way — returns
+  // `null` and the old route runs as before, so this can only add outcomes.
+  async function tryDownloadViaSabr({ jobId, info, height, audioFormat, notification, isCancelled }) {
+    const started = Date.now();
+    const isAudio = Boolean(audioFormat);
+    try {
+      const result = await downloadViaSabr({
+        jobId,
+        height,
+        format: isAudio ? 'mp3' : 'mp4',
+        audioFormat: isAudio ? audioFormat : null,
+        audioQuality: 'best',
+        videoId: info.videoId || '',
+        duration: Number(info.duration) || 0,
+        // The rung the server picks is only known after its first answer, so the
+        // name is built from what actually arrived, not from what was asked.
+        // Audio: offscreen swaps the extension for the one it actually wrote.
+        filename: (tracks) => (isAudio
+          ? `${safeFilename(info.title)}${audioFormatMeta(audioFormat, info).extension}`
+          : `${safeFilename(info.title)} [${tracks.video?.height || height}p].mp4`),
+        onProcessing: () => notification.setCancel(null),
+      }, (stage, fraction, state, label) => {
+        notification.stage(stage, fraction, state, label);
+      }, isCancelled);
+      if (!result?.ok) throw new Error(result?.error || 'не удалось собрать файл');
+      return result;
+    } catch (error) {
+      if (error?.details?.cancelled) throw error;
+      const reason = `sabr path declined after ${((Date.now() - started) / 1000).toFixed(1)}s:`
+        + ` ${String(error?.message || error)}`;
+      // Also to the console: a silent fall-through to the capture looks like the
+      // SABR path was never tried, and the journal is not visible while testing.
+      console.warn('[YT Studio]', reason);
+      void sendRuntimeMessage({ t: 'yts-log', tag: 'sabr', text: reason }).catch(() => {});
+      return null;
+    }
+  }
+
+  function videoIdFromLocation() {
+    try {
+      const url = new URL(location.href);
+      const queryId = url.searchParams.get('v');
+      if (queryId) return queryId;
+      return url.pathname.match(/\/(?:shorts|embed|v)\/([A-Za-z0-9_-]{6,})/)?.[1] || '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  async function clearReloadDownload() {
+    return sendRuntimeMessage({ t: 'yts-clear-reload-download' }, 10_000).catch(() => null);
+  }
+
+  async function clearReloadGuard() {
+    return sendRuntimeMessage({ t: 'yts-clear-reload-guard' }, 10_000).catch(() => null);
+  }
+
+  async function resumeReloadedVideoDownload() {
+    let pending;
+    // Probe first, and let it fail in silence. It runs on every page load,
+    // when the service worker is usually cold, and virtually never finds
+    // anything to resume — a red toast plus an auto-downloaded debug report
+    // for a routine slow start is far worse than a missed resume.
+    let response;
+    try {
+      response = await sendWorkerMessage({ t: 'yts-get-reload-download' }, 20_000);
+    } catch (error) {
+      void sendRuntimeMessage({
+        t: 'yts-log', tag: 'resume',
+        text: `pending-download probe skipped: ${String(error?.message || error)}`,
+      }).catch(() => {});
+      return;
+    }
+    if (!response?.ok || !response.pending) return;
+
+    try {
+      pending = response.pending;
+
+      const age = Date.now() - Number(pending.createdAt);
+      const locationVideoId = videoIdFromLocation();
+      if (IS_MUSIC && pending.reloadAttempted === true && pending.videoId
+        && locationVideoId && locationVideoId !== pending.videoId) {
+        // ytmusic sometimes reopens the queue on the NEXT track after a
+        // reload; the pending download then silently died here. Go back to
+        // the track it belongs to (once) and resume there.
+        let alreadyRedirected = false;
+        try { alreadyRedirected = sessionStorage.getItem('yts_resume_redirect') === pending.videoId; } catch (error) {}
+        if (!alreadyRedirected) {
+          try { sessionStorage.setItem('yts_resume_redirect', pending.videoId); } catch (error) {}
+          try { sessionStorage.setItem('yts_queue_nav', '1'); } catch (error) {}
+          const target = new URL('/watch', location.origin);
+          target.searchParams.set('v', pending.videoId);
+          // Without the list param ytmusic opens a radio and drifts further.
+          const listId = playlistIdFromLocation();
+          if (listId) target.searchParams.set('list', listId);
+          const navigated = await sendRuntimeMessage({
+            t: 'yts-navigate-tab', url: target.href,
+          }, 5_000).catch(() => null);
+          if (navigated?.ok) return; // pending stays stored; retried after load
+        }
+      }
+      try { sessionStorage.removeItem('yts_resume_redirect'); } catch (error) {}
+      const valid = pending.reloadAttempted === true
+        && (pending.format === 'mp4' || pending.format === 'mp3')
+        && typeof pending.token === 'string'
+        && (pending.format === 'mp3' || Number.isFinite(Number(pending.height)))
+        && typeof pending.playerState?.paused === 'boolean'
+        && Number.isFinite(Number(pending.playerState?.time))
+        && typeof pending.playerState?.muted === 'boolean'
+        && Number.isInteger(Number(pending.reloadCount))
+        && Number(pending.reloadCount) >= 1
+        && Number(pending.reloadCount) <= 2
+        && age >= 0 && age <= 120_000
+        && (!locationVideoId || locationVideoId === pending.videoId);
+      if (!valid) {
+        await clearReloadGuard();
+        return;
+      }
+
+      downloadInProgress = true;
+      const notification = getToast();
+      notification.set(pending.format === 'mp3'
+        ? 'Страница обновлена — продолжаю загрузку MP3…'
+        : 'Страница обновлена — продолжаю загрузку видео…', 0);
+
+      const holdReloadedMediaAtStart = () => {
+        const media = activeMediaElement();
+        if (!media) return;
+        try { media.muted = true; } catch (error) {}
+        // On Music a player paused at zero never builds its MSE buffers, so
+        // the resumed capture starved and reloaded again. Muted playback from
+        // zero warms it up; the capture pins the pause itself once it starts.
+        if (!IS_MUSIC) try { media.pause(); } catch (error) {}
+        try {
+          if (Number(media.currentTime) > 0.05) media.currentTime = 0;
+        } catch (error) {}
+      };
+      // Prime immediately, before waiting for metadata. Otherwise YouTube can
+      // spend that wait building a fresh SourceBuffer beginning at the saved
+      // playback position, forcing a complete second download at 99%.
+      holdReloadedMediaAtStart();
+      // YT Studio's own reload can land in a tab the user is not looking at, and
+      // YouTube does not build its player in a hidden tab. The readiness poll
+      // would then spend its whole budget on a page that was never going to be
+      // ready, and the resume — a one-shot — is lost for good. Wait to be shown
+      // before starting the clock; the toast already explains what is going on.
+      if (document.visibilityState === 'hidden') {
+        await new Promise((resolve) => {
+          let settle = () => {
+            settle = () => {};
+            document.removeEventListener('visibilitychange', onVisible);
+            resolve();
+          };
+          const onVisible = () => { if (document.visibilityState === 'visible') settle(); };
+          document.addEventListener('visibilitychange', onVisible);
+          setTimeout(() => settle(), 10 * 60_000);
+        });
+        holdReloadedMediaAtStart();
+      }
+      let info = null;
+      // A cold player on a heavy page routinely needs more than twenty seconds.
+      const readyDeadline = Date.now() + 45_000;
+      while (Date.now() < readyDeadline) {
+        holdReloadedMediaAtStart();
+        const candidate = await callHook('info').catch(() => null);
+        holdReloadedMediaAtStart();
+        if (candidate?.videoId && candidate.videoId !== pending.videoId) {
+          throw new Error('после обновления открыто другое видео');
+        }
+        if (candidate?.videoId === pending.videoId && Number(candidate.duration) > 0) {
+          info = {
+            ...candidate,
+            title: candidate.title || pending.title,
+            duration: Number(candidate.duration) || Number(pending.duration) || 0,
+          };
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      if (!info) throw new Error('плеер не подготовился после обновления страницы');
+
+      // Consume before starting: even if the fresh attempt fails, this request
+      // must never create an automatic reload loop.
+      const cleared = await clearReloadDownload();
+      if (!cleared?.ok) throw new Error('не удалось подтвердить одноразовое возобновление');
+      downloadInProgress = false;
+      const outcome = await startDownload(
+        {
+          format: pending.format,
+          height: pending.format === 'mp3' ? null : Number(pending.height),
+          audioFormat: pending.format === 'mp3' ? (pending.audioFormat || 'mp3') : 'mp3',
+        },
+        info,
+        {
+          freshPageResume: true,
+          restoreMediaState: pending.playerState,
+          reloadCount: Number(pending.reloadCount),
+        },
+      );
+      return { videoId: pending.videoId, ok: outcome === true, reloading: outcome === 'reload' };
+    } catch (error) {
+      await clearReloadGuard();
+      downloadInProgress = false;
+      const notification = getToast();
+      notification.set(`Ошибка возобновления: ${error.message || error}`, 1);
+      notification.hide(9000);
+      await reportError('ui/reload-resume', error, {
+        videoId: pending?.videoId,
+        height: pending?.height,
+      });
+      return pending?.videoId ? { videoId: pending.videoId, ok: false } : null;
+    }
+  }
+
+  // ---- live stream recording ----------------------------------------------
+  // The hook forwards every MSE fragment through window.postMessage; this side
+  // relays them (per-track, in order, with backpressure) to the offscreen
+  // document, which spools them to OPFS and muxes the file at stop.
+  let liveJob = null;
+
+  function removeLivePanel() {
+    document.getElementById('yts-live-panel')?.remove();
+  }
+
+  function renderLivePanel(state) {
+    let box = document.getElementById('yts-live-panel');
+    if (!box) {
+      box = createElement('div');
+      box.id = 'yts-live-panel';
+      const head = createElement('div', 'yts-live-head');
+      head.append(createElement('span', 'yts-live-dot'), createElement('span', 'yts-live-txt'));
+      const stopButton = createElement('button', 'yts-btn yts-live-stop', 'Остановить и сохранить');
+      stopButton.addEventListener('click', () => {
+        stopButton.disabled = true;
+        stopButton.textContent = 'Останавливаю…';
+        void callHook('live-stop').catch(() => {});
+      });
+      box.append(head, stopButton);
+      document.body.append(box);
+    }
+    const label = box.querySelector('.yts-live-txt');
+    const megabytes = (Number(state.bytes || 0) / (1024 * 1024)).toFixed(1);
+    const total = Math.max(0, Math.floor(Number(state.seconds) || 0));
+    const minutes = Math.floor(total / 60);
+    const seconds = String(total % 60).padStart(2, '0');
+    label.textContent = state.caughtUp
+      ? `Запись эфира: ${minutes}:${seconds} · ${megabytes} МБ`
+      : `Догоняю эфир (отставание ${Math.round(Number(state.behind) || 0)} с) · ${megabytes} МБ`;
+  }
+
+  async function startLiveRecording(info, from) {
+    const notification = getToast();
+    if (downloadInProgress) {
+      notification.set('Другая загрузка уже выполняется', 1);
+      notification.hide(4000);
+      return false;
+    }
+    downloadInProgress = true;
+    const jobId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    const chains = { video: Promise.resolve(), audio: Promise.resolve() };
+    liveJob = { jobId, failed: '', queuedBytes: 0, sentBytes: 0 };
+    const failLiveTransfer = (reason) => {
+      if (liveJob && !liveJob.failed) {
+        liveJob.failed = reason;
+        void callHook('live-stop').catch(() => {});
+      }
+    };
+    const onLiveChunk = (event) => {
+      if (event.source !== window || event.origin !== location.origin) return;
+      const data = event.data;
+      if (!data || data.__yts_live_chunk !== true || !data.buffer) return;
+      if (!liveJob || liveJob.jobId !== jobId || liveJob.failed) return;
+      const bytes = new Uint8Array(data.buffer);
+      liveJob.queuedBytes += bytes.length;
+      if (liveJob.queuedBytes - liveJob.sentBytes > 192 * 1024 * 1024) {
+        failLiveTransfer('передача сегментов не успевает за эфиром');
+        return;
+      }
+      const track = data.kind === 'audio' ? 'audio' : 'video';
+      chains[track] = chains[track].then(async () => {
+        if (!liveJob || liveJob.failed) return;
+        for (let offset = 0; offset < bytes.length; offset += TRANSFER_CHUNK_SIZE) {
+          const part = bytes.subarray(offset, Math.min(offset + TRANSFER_CHUNK_SIZE, bytes.length));
+          const response = await sendRuntimeMessage({
+            t: 'yts-live-chunk', jobId, track, mime: data.mime || '', b64: encodeBase64(part),
+          }, 60_000);
+          if (!response?.ok) throw new Error(response?.error || 'сегмент не принят обработчиком');
+        }
+        liveJob.sentBytes += bytes.length;
+      }).catch((error) => failLiveTransfer(String(error?.message || error)));
+    };
+    window.addEventListener('message', onLiveChunk);
+    const onFfmpegProgress = (message) => {
+      if (message?.t !== 'yts-progress' || message.jobId !== jobId) return;
+      notification.set(message.status || 'Сборка записи эфира…', Math.max(0, Math.min(1, message.value || 0)));
+    };
+    chrome.runtime.onMessage.addListener(onFfmpegProgress);
+    try {
+      notification.set('Подготовка записи эфира…', 0.05);
+      const ensured = await sendWorkerMessage({ t: 'yts-ensure' }, 30_000);
+      if (!ensured?.ok) throw new Error(ensured?.error || 'не удалось запустить обработчик медиа');
+      const registration = await sendRuntimeMessage({ t: 'yts-register-job', jobId }, 10_000);
+      if (!registration?.ok || !Number.isInteger(registration.tabId)) {
+        throw new Error(registration?.error || 'не удалось определить вкладку записи');
+      }
+      const begun = await sendRuntimeMessage({
+        t: 'yts-live-begin', jobId, tabId: registration.tabId,
+      }, 30_000);
+      if (!begun?.ok) throw new Error(begun?.error || 'не удалось начать запись эфира');
+      notification.hide(800);
+      renderLivePanel({
+        seconds: 0, bytes: 0, behind: 0, caughtUp: from !== 'start',
+      });
+      const result = await callHook('live-start', { from }, (message) => {
+        if (message.live) renderLivePanel(message.live);
+      });
+      removeLivePanel();
+      if (liveJob.failed) throw new Error(liveJob.failed);
+      notification.set('Эфир записан, передаю остаток данных…', 0.15);
+      await Promise.allSettled([chains.video, chains.audio]);
+      if (liveJob.failed) throw new Error(liveJob.failed);
+      notification.set('Собираю файл записи…', 0.25);
+      const filename = `${safeFilename(info.title)} [LIVE].mp4`;
+      const finalized = await sendRuntimeMessage({
+        t: 'yts-live-finalize',
+        jobId,
+        filename,
+        duration: Number(result.durationSeconds) || 0,
+        videoMime: result.videoMime || '',
+        audioMime: result.audioMime || '',
+      }, 60 * 60_000);
+      if (!finalized?.ok) {
+        const failure = new Error(finalized?.error || 'не удалось собрать запись эфира');
+        failure.recovered = Boolean(finalized?.recovered);
+        failure.logged = Boolean(finalized?.logged);
+        throw failure;
+      }
+      notification.set(finalized.split
+        ? 'Готово: запись сохранена двумя файлами (видео + звук): она слишком велика для склейки в браузере'
+        : (finalized.singleTrack
+          ? `Внимание: плеер передал только ${finalized.singleTrack === 'audio' ? 'аудио' : 'видео'}дорожку — сохранена она (${finalized.filename})`
+          : `Готово: ${finalized.filename || filename} (${result.reason || 'эфир записан'})`), 1);
+      notification.hide(9000);
+      return true;
+    } catch (error) {
+      removeLivePanel();
+      await sendRuntimeMessage({ t: 'yts-live-abort', jobId }, 10_000).catch(() => {});
+      const detail = String(error?.message || error);
+      notification.set(error?.recovered ? detail : `Ошибка записи эфира: ${detail.slice(0, 240)}`, 1);
+      notification.hide(error?.recovered ? 25_000 : 9000);
+      if (!error?.logged) await reportError('ui/live', error, { videoId: info.videoId, from });
+      return false;
+    } finally {
+      window.removeEventListener('message', onLiveChunk);
+      chrome.runtime.onMessage.removeListener(onFfmpegProgress);
+      liveJob = null;
+      downloadInProgress = false;
+    }
+  }
+
+  // ---- playlist queue ------------------------------------------------------
+  // The queue survives navigation in chrome.storage.local; each watch page
+  // load picks up the first pending item, downloads it with the regular
+  // single-video pipeline and then navigates to the next video itself.
+  const QUEUE_KEY = 'yts_playlist_queue';
+  let queueRunning = false;
+  // Consumed once per page load: set by YT Studio right before its own reloads and
+  // navigations. A page load without it means the user reloaded manually.
+  let pageLoadWasYtsNavigation = false;
+  try {
+    pageLoadWasYtsNavigation = sessionStorage.getItem('yts_queue_nav') === '1';
+    sessionStorage.removeItem('yts_queue_nav');
+  } catch (error) {}
+
+  function playlistIdFromLocation() {
+    try { return new URL(location.href).searchParams.get('list') || ''; } catch (error) { return ''; }
+  }
+
+  function scrapePlaylistItems() {
+    if (IS_MUSIC) return scrapeMusicQueueItems();
+    const items = [];
+    const seen = new Set();
+    for (const row of document.querySelectorAll('ytd-playlist-panel-video-renderer')) {
+      const link = row.querySelector('a#wc-endpoint') || row.querySelector('a[href*="watch"]');
+      let videoId = '';
+      try { videoId = new URL(link?.href || '', location.origin).searchParams.get('v') || ''; } catch (error) {}
+      if (!videoId || seen.has(videoId)) continue;
+      seen.add(videoId);
+      const titleNode = row.querySelector('#video-title');
+      const title = (titleNode?.getAttribute('title') || titleNode?.textContent || videoId).trim();
+      items.push({ videoId, title });
+    }
+    return items;
+  }
+
+  // YT Music queue rows expose no watch link; the video id lives in the
+  // thumbnail URL (i.ytimg.com/vi/<id>/...).
+  function scrapeMusicQueueItems() {
+    const items = [];
+    const seen = new Set();
+    for (const row of document.querySelectorAll('ytmusic-player-queue-item')) {
+      const thumb = row.querySelector('img');
+      const videoId = ((thumb?.src || '').match(/\/vi\/([A-Za-z0-9_-]{6,})\//) || [])[1] || '';
+      if (!videoId || seen.has(videoId)) continue;
+      seen.add(videoId);
+      const titleNode = row.querySelector('.song-title');
+      const artistNode = row.querySelector('.byline');
+      const title = [
+        (artistNode?.getAttribute('title') || artistNode?.textContent || '').trim(),
+        (titleNode?.getAttribute('title') || titleNode?.textContent || videoId).trim(),
+      ].filter(Boolean).join(' - ');
+      items.push({ videoId, title });
+    }
+    return items;
+  }
+
+  async function readQueue() {
+    const stored = await chrome.storage.local.get(QUEUE_KEY).catch(() => ({}));
+    return stored[QUEUE_KEY] || null;
+  }
+  async function writeQueue(queue) {
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue }).catch(() => {});
+  }
+  async function clearQueue() {
+    await chrome.storage.local.remove(QUEUE_KEY).catch(() => {});
+  }
+
+  function closePlaylistPicker() {
+    document.getElementById('yts-playlist-overlay')?.remove();
+  }
+
+  function openPlaylistPicker(info, items) {
+    closePlaylistPicker();
+    const overlay = createElement('div');
+    overlay.id = 'yts-playlist-overlay';
+    const panel = createElement('div', 'yts-playlist');
+    panel.append(createElement('div', 'yts-playlist-head', `Скачивание плейлиста — ${items.length} видео`));
+    panel.append(createElement('div', 'yts-playlist-note',
+      'В списке видео, уже загруженные плеером. Если плейлист длиннее — прокрутите его на странице и откройте это окно снова.'));
+
+    const formatRow = createElement('div', 'yts-playlist-format');
+    formatRow.append(createElement('span', null, 'Формат:'));
+    const select = document.createElement('select');
+    // On Music the queue mixes songs and clips; a fixed video height would
+    // fail on the audio-only entries, so the queue is audio-only there.
+    if (!IS_MUSIC) {
+      const videoGroup = document.createElement('optgroup');
+      videoGroup.label = '─── Видео ───';
+      const heights = [...new Set(info.heights || [])].sort((a, b) => b - a);
+      for (const h of heights) videoGroup.append(new Option(`🎬 ${h}p (MP4)`, `mp4:${h}`));
+      if (videoGroup.children.length) select.append(videoGroup);
+    }
+    const audioGroup = document.createElement('optgroup');
+    audioGroup.label = '─── Аудио ───';
+    for (const audio of audioFormatsFor(info)) audioGroup.append(new Option(`🎵 ${audio.title}`, `mp3:${audio.id}`));
+    select.append(audioGroup);
+    formatRow.append(select);
+    panel.append(formatRow);
+
+    const allRow = createElement('label', 'yts-playlist-row yts-playlist-all');
+    const selectAll = document.createElement('input');
+    selectAll.type = 'checkbox';
+    selectAll.checked = true;
+    allRow.append(selectAll, createElement('span', 'yts-playlist-title', 'Выбрать все'));
+    panel.append(allRow);
+
+    const list = createElement('div', 'yts-playlist-list');
+    const checks = items.map((item, index) => {
+      const row = createElement('label', 'yts-playlist-row');
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.checked = true;
+      check.addEventListener('change', () => {
+        selectAll.checked = checks.every((box) => box.checked);
+      });
+      row.append(check,
+        createElement('span', 'yts-playlist-idx', String(index + 1)),
+        createElement('span', 'yts-playlist-title', item.title));
+      list.append(row);
+      return check;
+    });
+    panel.append(list);
+    selectAll.addEventListener('change', () => checks.forEach((box) => { box.checked = selectAll.checked; }));
+
+    const actions = createElement('div', 'yts-playlist-actions');
+    const startButton = createElement('button', 'yts-btn primary', 'Скачать выбранные');
+    const closeButton = createElement('button', 'yts-btn', 'Закрыть');
+    actions.append(startButton, closeButton);
+    panel.append(actions);
+    overlay.append(panel);
+    document.body.append(overlay);
+    closeButton.addEventListener('click', closePlaylistPicker);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closePlaylistPicker();
+    });
+    startButton.addEventListener('click', async () => {
+      const chosen = items.filter((_, index) => checks[index].checked);
+      if (!chosen.length) return;
+      const [format, sub] = String(select.value).split(':');
+      // The token lives in this tab's sessionStorage: another tab (or a tab
+      // opened after this one closes) can never adopt and resume this queue.
+      const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+      try { sessionStorage.setItem('yts_queue_token', token); } catch (error) {}
+      await writeQueue({
+        listId: playlistIdFromLocation(),
+        createdAt: Date.now(),
+        active: true,
+        token,
+        format: {
+          format: format === 'mp3' ? 'mp3' : 'mp4',
+          height: format === 'mp4' ? Number(sub) : null,
+          audioFormat: format === 'mp3' ? sub : null,
+        },
+        items: chosen.map((item) => ({
+          videoId: item.videoId,
+          title: item.title.slice(0, 200),
+          status: 'pending',
+        })),
+      });
+      closePlaylistPicker();
+      void processPlaylistQueue(null);
+    });
+  }
+
+  function renderQueuePanel(queue, state = {}) {
+    let box = document.getElementById('yts-queue');
+    if (!box) {
+      box = createElement('div');
+      box.id = 'yts-queue';
+      const body = createElement('div', 'yts-queue-body');
+      const cancelButton = createElement('button', 'yts-btn yts-queue-cancel', 'Отменить очередь');
+      cancelButton.addEventListener('click', async () => {
+        await clearQueue();
+        try { sessionStorage.removeItem('yts_queue_token'); } catch (error) {}
+        if (IS_MUSIC) void callHook('music-mute', { mute: false }).catch(() => {});
+        // Do not touch the toast here: a download may be mid-item and owns the
+        // staged progress UI (with its own cancel button). Removing the panel
+        // is the visible confirmation that the queue is gone.
+        box.remove();
+      });
+      const actions = createElement('div', 'yts-queue-actions');
+      actions.append(cancelButton);
+      body.append(createElement('div', 'yts-queue-list'), actions);
+      box.append(createElement('div', 'yts-queue-pill'), body);
+      document.body.append(box);
+    }
+    const done = queue.items.filter((item) => item.status === 'done').length;
+    const failed = queue.items.filter((item) => item.status === 'error').length;
+    const activeItem = queue.items.find((item) => item.status === 'active');
+    const pill = box.querySelector('.yts-queue-pill');
+    pill.textContent = state.finished
+      ? `Плейлист: готово ${done}/${queue.items.length}${failed ? `, ошибок: ${failed}` : ''}`
+      : `Плейлист: ${done}/${queue.items.length}${activeItem ? ` · ${activeItem.title}` : ''}`;
+    box.querySelector('.yts-queue-cancel').textContent = state.finished ? 'Закрыть' : 'Отменить очередь';
+    box.classList.toggle('finished', Boolean(state.finished));
+    const list = box.querySelector('.yts-queue-list');
+    list.replaceChildren(...queue.items.map((item, index) => {
+      const row = createElement('div', `yts-queue-row ${item.status}`);
+      const icon = item.status === 'done' ? '✓'
+        : (item.status === 'error' ? '✗' : (item.status === 'active' ? '▶' : '•'));
+      row.append(createElement('span', 'yts-queue-ic', icon),
+        createElement('span', 'yts-queue-idx', `${index + 1}.`),
+        createElement('span', 'yts-queue-title', item.title));
+      return row;
+    }));
+  }
+
+  async function waitForPlayerReady(videoId, deadlineMs = 30_000, onTick) {
+    const deadline = Date.now() + deadlineMs;
+    while (Date.now() < deadline) {
+      onTick?.();
+      const candidate = await callHook('info').catch(() => null);
+      onTick?.();
+      if (candidate?.videoId === videoId && Number(candidate.duration) > 0) return candidate;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    return null;
+  }
+
+  // Mirror of the reload-resume priming: pin the fresh player to a muted pause
+  // at zero so YouTube builds its MSE session from the opening segments. Queue
+  // items that skipped this occasionally landed in a wedged SABR session.
+  function holdQueueMediaAtStart() {
+    const media = activeMediaElement();
+    if (!media) return;
+    try { media.muted = true; } catch (error) {}
+    // Music player: muted playback instead of a pause — paused at zero it
+    // never loads metadata/buffers and the queue item waits out its 30s.
+    if (!IS_MUSIC) try { media.pause(); } catch (error) {}
+    try {
+      if (Number(media.currentTime) > 0.05) media.currentTime = 0;
+    } catch (error) {}
+  }
+
+  async function processPlaylistQueue(resumedResult, entry = 'inline') {
+    if (location.pathname !== '/watch' || queueRunning || downloadInProgress) return;
+    if (resumedResult?.reloading) return;
+    // Claim the runner slot before any await: the startup path and the
+    // yt-navigate-finish handler can otherwise both pass the guard above and
+    // download the same item twice.
+    queueRunning = true;
+    try {
+      let queue = await readQueue();
+      if (!queue?.active || !Array.isArray(queue.items) || !queue.items.length) return;
+      let sessionToken = null;
+      try { sessionToken = sessionStorage.getItem('yts_queue_token'); } catch (error) {}
+      if (!queue.token || queue.token !== sessionToken) {
+        // Queue owned by another tab: never adopt it here — and never destroy
+        // it either, its owner tab may be running it right now. Only remove
+        // tokenless (pre-token) queues and abandoned ones nobody can resume.
+        if (!queue.token || Date.now() - Number(queue.createdAt || 0) > 12 * 60 * 60_000) {
+          await clearQueue();
+        }
+        return;
+      }
+      if (entry === 'load') {
+        if (!pageLoadWasYtsNavigation) {
+          // A page load without YT Studio's navigation flag is the user pressing
+          // reload by hand — that is the stop signal for the queue.
+          await clearQueue();
+          try { sessionStorage.removeItem('yts_queue_token'); } catch (error) {}
+          const notification = getToast();
+          notification.set('Очередь плейлиста остановлена после обновления страницы', 1);
+          notification.hide(6000);
+          return;
+        }
+      }
+      const active = queue.items.find((item) => item.status === 'active');
+      if (active) {
+        // A reload-resume that just finished settles the interrupted item;
+        // anything else (browser restart, stray navigation) retries it.
+        if (resumedResult && resumedResult.videoId === active.videoId) {
+          active.status = resumedResult.ok ? 'done' : 'error';
+        } else {
+          active.status = 'pending';
+        }
+        await writeQueue(queue);
+      }
+      renderQueuePanel(queue);
+      while (true) {
+        queue = await readQueue();
+        if (!queue?.active) break;
+        const next = queue.items.find((item) => item.status === 'pending');
+        if (!next) {
+          renderQueuePanel(queue, { finished: true });
+          const done = queue.items.filter((item) => item.status === 'done').length;
+          const failed = queue.items.filter((item) => item.status === 'error').length;
+          const notification = getToast();
+          notification.set(`Плейлист: скачано ${done} из ${queue.items.length}${failed ? `, с ошибками: ${failed}` : ''}`, 1);
+          notification.hide(8000);
+          await clearQueue();
+          if (IS_MUSIC) {
+            // The queue kept the tab silent; give the sound back at the end.
+            void callHook('music-mute', { mute: false }).catch(() => {});
+            try { activeMediaElement().muted = false; } catch (error) {}
+          }
+          break;
+        }
+        if (videoIdFromLocation() !== next.videoId) {
+          renderQueuePanel(queue);
+          // Music included: every queue item gets a REAL page load. Tracks
+          // opened through ytmusic's SPA switching inherit a wedged media
+          // session and stall, while a fresh load downloads first try (the
+          // beforeunload prompt is stripped by the hook, so loads are silent).
+          const target = new URL('/watch', location.origin);
+          target.searchParams.set('v', next.videoId);
+          if (queue.listId) target.searchParams.set('list', queue.listId);
+          try { sessionStorage.setItem('yts_queue_nav', '1'); } catch (error) {}
+          // Navigate through the browser so every queue item starts as a real
+          // page load; page-initiated navigation gets intercepted into an SPA
+          // transition where YouTube preloads media before the URL changes and
+          // the captured head is lost.
+          const navigated = await sendRuntimeMessage({
+            t: 'yts-navigate-tab', url: target.href,
+          }, 5_000).catch(() => null);
+          if (!navigated?.ok) location.assign(target.href);
+          return;
+        }
+        next.status = 'active';
+        await writeQueue(queue);
+        renderQueuePanel(queue);
+        holdQueueMediaAtStart();
+        // Never write a stale queue copy after a long await: the user may have
+        // cancelled meanwhile, and writing would resurrect the cleared queue.
+        const settleItem = async (videoId, status) => {
+          const current = await readQueue();
+          if (!current?.active || current.token !== queue.token) return false;
+          const item = current.items.find((entry) => entry.videoId === videoId
+            && (entry.status === 'active' || entry.status === 'pending'));
+          if (item) item.status = status;
+          await writeQueue(current);
+          renderQueuePanel(current);
+          return true;
+        };
+        const ready = await waitForPlayerReady(next.videoId, 30_000, holdQueueMediaAtStart);
+        if (!ready) {
+          if (!(await settleItem(next.videoId, 'error'))) break;
+          continue;
+        }
+        const outcome = await startDownload({
+          format: queue.format?.format === 'mp3' ? 'mp3' : 'mp4',
+          height: Number(queue.format?.height) || null,
+          audioFormat: queue.format?.audioFormat || 'mp3',
+        }, ready, {
+          // Music: keep the tab silent for the whole queue run; the last
+          // item unmutes when the queue finishes.
+          restoreMediaState: { paused: true, time: 0, muted: IS_MUSIC },
+        });
+        if (outcome === 'reload') return; // resume continues after the reload
+        if (outcome === 'busy') {
+          // The user started a manual download while the queue was between
+          // items: put the item back, wait the manual download out, retry.
+          if (!(await settleItem(next.videoId, 'pending'))) break;
+          while (downloadInProgress) {
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
+          }
+          continue;
+        }
+        if (!(await settleItem(next.videoId, outcome === true ? 'done' : 'error'))) break;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+    } finally {
+      queueRunning = false;
+      // The queue app-mutes the Music tab; if this tab's queue is over for
+      // ANY reason (finished, cancelled, errored out), the sound must come
+      // back. ytmusic persists its mute state across reloads, so a missed
+      // unmute used to leave the tab silent until toggled by hand. Gated on
+      // the tab's own token: without it this must never touch a mute the
+      // user set manually.
+      if (IS_MUSIC) {
+        let hadToken = false;
+        try { hadToken = Boolean(sessionStorage.getItem('yts_queue_token')); } catch (error) {}
+        if (hadToken) {
+          const remaining = await readQueue().catch(() => null);
+          if (!remaining?.active) {
+            try { sessionStorage.removeItem('yts_queue_token'); } catch (error) {}
+            void callHook('music-mute', { mute: false }).catch(() => {});
+          }
+        }
+      }
+    }
+  }
+
+  new MutationObserver(scheduleButton).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('yt-navigate-finish', scheduleButton);
+  scheduleButton();
+  // With an active queue the freshly navigated track starts playing out loud
+  // for the seconds before the download begins; silence it as early as
+  // possible (the capture itself mutes only for its own duration).
+  function muteEarlyIfQueueActive() {
+    try {
+      if (!sessionStorage.getItem('yts_queue_token')) return;
+      holdQueueMediaAtStart();
+      // ytmusic re-applies its stored volume over element.muted; mute the
+      // player app itself for the whole queue run (unmuted at completion).
+      if (IS_MUSIC) void callHook('music-mute', { mute: true }).catch(() => {});
+    } catch (error) {}
+  }
+  document.addEventListener('yt-navigate-finish', () => {
+    muteEarlyIfQueueActive();
+    setTimeout(() => { void processPlaylistQueue(null); }, 1_500);
+  });
+  muteEarlyIfQueueActive();
+
+  // Quality preferences live in chrome.storage, which only this world can read;
+  // the player they apply to lives in the page's world. Push them across on
+  // load and on every change, so editing the popup takes effect on an open tab
+  // without a reload.
+  function pushSettings(settings) {
+    return callHook('settings', { settings }).catch((error) => {
+      void sendRuntimeMessage({
+        t: 'yts-log', tag: 'settings',
+        text: `push failed: ${String(error?.message || error)}`,
+      }).catch(() => {});
+    });
+  }
+  (async () => {
+    const settings = globalThis.YTStudioSettings;
+    if (!settings) return;
+    await pushSettings(await settings.load());
+    settings.subscribe((next) => { void pushSettings(next); });
+  })();
+
+  (async () => {
+    const resumed = await resumeReloadedVideoDownload();
+    await processPlaylistQueue(resumed || null, 'load');
+  })();
+})();
