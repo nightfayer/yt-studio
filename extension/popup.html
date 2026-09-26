@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YT Studio</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
+          </svg>
+        </div>
+        <div class="logo-title">
+          <span class="brand">YT STUDIO</span>
+          <span class="version" id="app-version">v4.2</span>
+        </div>
+      </div>
+      <div class="status-badge" id="server-status">
+        <span class="status-dot"></span>
+        <span class="status-text" id="status-text">Поиск...</span>
+        <button class="btn-icon" id="btn-refresh" title="Проверить подключение">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Offline Warning banner -->
+    <div class="offline-banner" id="offline-banner" style="display: none;">
+      <div class="offline-icon">⚠️</div>
+      <div class="offline-body">
+        <div class="offline-title">Сервер не запущен</div>
+        <div class="offline-desc">Запустите <b>Start.bat</b> на компьютере для скачивания</div>
+      </div>
+    </div>
+
+    <!-- Active Tab Quick Download -->
+    <div class="card" id="tab-card">
+      <div class="card-header">
+        <span class="card-title">Текущая страница</span>
+        <span class="platform-tag" id="tab-platform">URL</span>
+      </div>
+      
+      <div class="tab-title" id="tab-title">Загрузка информации...</div>
+      <div class="tab-url" id="tab-url">...</div>
+
+      <!-- Format selector -->
+      <div class="format-pills" id="format-pills">
+        <button class="pill active" data-mode="video" data-quality="1080">🎬 1080p MP4</button>
+        <button class="pill" data-mode="video" data-quality="720">🎬 720p MP4</button>
+        <button class="pill" data-mode="audio" data-quality="0" data-format="mp3">🎵 MP3 320k</button>
+        <button class="pill" data-mode="audio" data-quality="0" data-format="m4a">🎵 M4A</button>
+      </div>
+
+      <!-- Download Button -->
+      <button class="btn-download" id="btn-download-tab">
+        <span class="btn-text">Скачать видео в YT Studio</span>
+      </button>
+
+      <div class="download-feedback" id="download-feedback" style="display: none;"></div>
+    </div>
+
+    <!-- Active Jobs list -->
+    <div class="card" id="jobs-card">
+      <div class="card-header">
+        <span class="card-title">Активные загрузки</span>
+        <span class="jobs-count" id="jobs-count">0</span>
+      </div>
+      <div class="jobs-list" id="jobs-list">
+        <div class="jobs-empty">Нет активных загрузок</div>
+      </div>
+    </div>
+
+    <!-- Footer actions -->
+    <footer class="footer">
+      <button class="btn-secondary" id="btn-open-web">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+        </svg>
+        <span>Веб-панель YT Studio</span>
+      </button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

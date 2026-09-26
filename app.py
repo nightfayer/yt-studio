@@ -987,6 +987,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = (self.headers.get("Origin") or "").lower()
         if not origin:
             return True
+        if origin.startswith("chrome-extension://") or origin.startswith("moz-extension://"):
+            return True
         if re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$", origin):
             return True
         m = re.match(r"^https?://([^:/]+)(:\d+)?$", origin)
@@ -1004,6 +1006,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        origin = self.headers.get("Origin") or ""
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-YTS-Token")
+            self.send_header("Access-Control-Allow-Credentials", "true")
         if cookie:
             is_https = self.headers.get("X-Forwarded-Proto") == "https"
             sec = "; Secure" if is_https else ""
@@ -1015,6 +1023,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
                 pass
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        origin = self.headers.get("Origin") or "*"
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-YTS-Token")
+        self.send_header("Access-Control-Allow-Credentials", "true")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
 
     def _guard(self):
         if not self._host_ok():
@@ -1030,6 +1048,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+
+        if path == "/api/status":
+            if not self._host_ok():
+                return self._send(403, {"error": "forbidden host"})
+            client_ip = self.client_address[0]
+            origin = (self.headers.get("Origin") or "").lower()
+            is_ext = origin.startswith("chrome-extension://") or origin.startswith("moz-extension://")
+            if client_ip in ("127.0.0.1", "::1", "localhost") or is_ext or self._token_ok():
+                return self._send(200, {
+                    "ok": True,
+                    "token": TOKEN,
+                    "version": APP_VERSION,
+                    "ytdlp": setup_state.get("ytdlpVersion"),
+                    "outputDir": out_dir()
+                })
+            return self._send(403, {"error": "forbidden"})
 
         if path in ("/", "/index.html"):
             if not self._host_ok():
