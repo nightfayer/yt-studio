@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build extension zip
+        run: |
+          zip -r "yt-studio-${{ github.ref_name }}.zip" . \
+            -x "*.git*" \
+            -x "*.github*" \
+            -x "CHROMEWEBSTORE.md" \
+            -x "THIRD_PARTY_NOTICES.md"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "YT Studio ${{ github.ref_name }}"
+          files: "yt-studio-${{ github.ref_name }}.zip"
+          generate_release_notes: true
