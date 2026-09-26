@@ -325,12 +325,7 @@
     const heading = createElement('div', 'yts-menu-head yts-brand-head');
     const label = createElement('span');
     const version = chrome.runtime.getManifest().version;
-    const link = createElement('a', null, 't.me/yts_txt');
-    link.href = 'https://t.me/yts_txt';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.addEventListener('click', () => closeMenu());
-    label.append(`YT Studio v${version} | `, link);
+    label.append(`YT Studio v${version}`);
     heading.append(label);
     if (updateState?.available) {
       const updateLink = createElement('a', 'yts-update-link', 'Доступно обновление');
