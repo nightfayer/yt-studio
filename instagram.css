@@ -1,0 +1,151 @@
+/* Instagram adapter styles - YT Studio Cyber-Neon */
+
+[hidden] { display: none !important; }
+
+/* Overlay button on the video */
+.yts-insta-btn.yts-insta-overlay {
+  position: absolute !important;
+  right: 14px !important;
+  bottom: 24px !important;
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: rgba(11, 15, 25, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 0 10px rgba(0, 242, 254, 0.25) !important;
+  cursor: pointer !important;
+  z-index: 100 !important;
+  opacity: 0.85 !important;
+  transition: all 0.2s ease !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.yts-insta-btn.yts-insta-overlay:hover {
+  opacity: 1 !important;
+  transform: scale(1.08) !important;
+  background: rgba(11, 15, 25, 0.95) !important;
+  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45) !important;
+}
+
+.yts-insta-btn.yts-insta-overlay svg {
+  width: 28px !important;
+  height: 28px !important;
+  display: block !important;
+  shape-rendering: geometricPrecision !important;
+}
+
+/* Menu */
+.yts-insta-menu {
+  position: fixed;
+  z-index: 2147483647;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  color: #f1f5f9;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 242, 254, 0.15);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: yts-insta-fadein 0.15s ease-out;
+}
+
+@keyframes yts-insta-fadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.yts-insta-head {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #00f2fe;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+
+.yts-insta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.yts-insta-item:hover {
+  background: rgba(0, 242, 254, 0.12);
+}
+
+.yts-insta-item b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.yts-insta-hint {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Toast */
+.yts-insta-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(11, 15, 25, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 242, 254, 0.3);
+  color: #f1f5f9;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6), 0 0 14px rgba(0, 242, 254, 0.2);
+  font: 12.5px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.yts-insta-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.yts-insta-toast-txt {
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #f1f5f9;
+}
+
+.yts-insta-toast-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.yts-insta-toast-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+  box-shadow: 0 0 6px rgba(0, 242, 254, 0.6);
+}

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YT Studio",
-  "version": "2.0",
-  "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, Coub, VK, Zvuk и TikTok, запись трансляций — без внешних сервисов",
+  "version": "2.1",
+  "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, VK, TikTok, Instagram, Coub и Zvuk, запись трансляций — без внешних сервисов",
   "permissions": [
     "downloads",
     "offscreen",
@@ -34,7 +34,11 @@
     "https://*.tiktokv.com/*",
     "https://*.tiktokv.us/*",
     "https://*.byteoversea.com/*",
-    "https://*.ibyteimg.com/*"
+    "https://*.ibyteimg.com/*",
+    "https://www.instagram.com/*",
+    "https://*.instagram.com/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbcdn.net/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -170,6 +174,22 @@
       ],
       "css": [
         "tiktok.css"
+      ],
+      "run_at": "document_idle",
+      "world": "ISOLATED",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://instagram.com/*"
+      ],
+      "js": [
+        "settings.js",
+        "instagram.js"
+      ],
+      "css": [
+        "instagram.css"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED",
