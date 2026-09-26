@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Studio",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, VK, TikTok, Instagram, Coub и Zvuk, запись трансляций — без внешних сервисов",
   "permissions": [
     "downloads",
@@ -177,6 +177,18 @@
       ],
       "run_at": "document_idle",
       "world": "ISOLATED",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://instagram.com/*"
+      ],
+      "js": [
+        "instagram_hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
       "all_frames": false
     },
     {

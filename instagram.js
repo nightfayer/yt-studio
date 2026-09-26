@@ -58,28 +58,65 @@
 
   function extractSrcFromFiber(video) {
     try {
-      const fiberKey = Object.keys(video).find((k) => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-      if (!fiberKey) return null;
-      let fiber = video[fiberKey];
-      for (let i = 0; i < 20 && fiber; i++) {
-        const props = fiber.memoizedProps;
-        if (props) {
-          if (typeof props.src === 'string' && props.src.startsWith('http')) return props.src;
-          if (typeof props.videoData?.video_versions?.[0]?.url === 'string') {
-            return props.videoData.video_versions[0].url;
-          }
-          if (typeof props.video?.video_versions?.[0]?.url === 'string') {
-            return props.video.video_versions[0].url;
+      let curr = video;
+      const visited = new Set();
+      let foundUrl = null;
+
+      function searchProps(obj, depth = 0) {
+        if (!obj || depth > 6 || foundUrl || visited.has(obj)) return;
+        if (typeof obj !== 'object') return;
+        visited.add(obj);
+
+        if (Array.isArray(obj.video_versions) && obj.video_versions[0]?.url) {
+          foundUrl = obj.video_versions[0].url;
+          return;
+        }
+
+        for (const k of Object.keys(obj)) {
+          if (foundUrl) return;
+          const val = obj[k];
+          if (typeof val === 'string') {
+            if (val.startsWith('http') && (val.includes('.mp4') || val.includes('cdninstagram.com') || val.includes('fbcdn.net')) && !val.includes('.jpg') && !val.includes('.webp')) {
+              foundUrl = val;
+              return;
+            }
+          } else if (typeof val === 'object' && val !== null) {
+            searchProps(val, depth + 1);
           }
         }
-        fiber = fiber.return;
       }
-    } catch (e) {}
-    return null;
+
+      while (curr && curr !== document.body && !foundUrl) {
+        const fiberKey = Object.keys(curr).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+        if (fiberKey) {
+          let fiber = curr[fiberKey];
+          for (let i = 0; i < 25 && fiber && !foundUrl; i++) {
+            if (fiber.memoizedProps) searchProps(fiber.memoizedProps);
+            fiber = fiber.return;
+          }
+        }
+        curr = curr.parentElement;
+      }
+      return foundUrl;
+    } catch (e) {
+      return null;
+    }
   }
 
   function getVideoUrl(video) {
     if (!video) return null;
+
+    if (video.dataset.ytsDirectUrl?.startsWith('http')) {
+      return video.dataset.ytsDirectUrl;
+    }
+
+    try {
+      video.dispatchEvent(new CustomEvent('yts-get-instagram-url', { bubbles: true }));
+      if (video.dataset.ytsDirectUrl?.startsWith('http')) {
+        return video.dataset.ytsDirectUrl;
+      }
+    } catch (e) {}
+
     const fiberSrc = extractSrcFromFiber(video);
     if (fiberSrc) return fiberSrc;
 
@@ -92,7 +129,6 @@
     const meta = document.querySelector('meta[property="og:video"], meta[property="og:video:url"]');
     if (meta?.content && meta.content.startsWith('http')) return meta.content;
 
-    // Blob URL can still be fetched same-origin in the page context
     return video.currentSrc || video.src || null;
   }
 
@@ -395,23 +431,67 @@
     return svg;
   }
 
-  function attachButtonToVideo(video) {
-    if (!video || video.dataset.ytsBound) return;
-    const container = video.parentElement;
-    if (!container) return;
+  function findHost(video) {
+    if (!video) return null;
+    const vRect = video.getBoundingClientRect();
+    let curr = video.parentElement;
 
-    video.dataset.ytsBound = 'true';
+    // Strategy 1: Find ancestor that has player controls/overlays and roughly matches video dimensions
+    while (curr && curr !== document.body) {
+      const r = curr.getBoundingClientRect();
+      const hasControls = !!curr.querySelector('[aria-label*="воспроизвести"], [aria-label*="приостановить"], [aria-label*="play" i], [aria-label*="pause" i], [aria-label*="звук" i], [aria-label*="audio" i], [aria-label*="mute" i], [aria-label*="sound" i]');
+      if (hasControls && r.width > 0 && Math.abs(r.width - vRect.width) < 50 && Math.abs(r.height - vRect.height) < 50) {
+        return curr;
+      }
+      curr = curr.parentElement;
+    }
+
+    // Strategy 2: Find first ancestor with multiple children that covers the video
+    curr = video.parentElement;
+    while (curr && curr !== document.body) {
+      if (curr.children.length > 1) {
+        const r = curr.getBoundingClientRect();
+        if (r.width > 0 && Math.abs(r.width - vRect.width) < 50 && Math.abs(r.height - vRect.height) < 50) {
+          return curr;
+        }
+      }
+      curr = curr.parentElement;
+    }
+
+    return video.parentElement;
+  }
+
+  function attachButtonToVideo(video) {
+    if (!video) return;
+    const host = findHost(video);
+    if (!host || host.querySelector(`.${BUTTON_CLASS}`)) return;
+
     const button = createElement('button', `${BUTTON_CLASS} ${OVERLAY_CLASS}`);
     button.type = 'button';
     button.title = 'Скачать видео (YT Studio)';
     button.setAttribute('aria-label', 'Скачать видео (YT Studio)');
     button.append(createIcon());
-    button.addEventListener('click', (e) => openMenu(video, button, e));
 
-    if (getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative';
+    // Stop propagation on pointerdown, mousedown, touchstart so Instagram gesture layer doesn't steal clicks
+    button.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    button.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+    });
+    button.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+    }, { passive: true });
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu(video, button, e);
+    });
+
+    if (getComputedStyle(host).position === 'static') {
+      host.style.position = 'relative';
     }
-    container.append(button);
+    host.append(button);
   }
 
   function scanAndMount() {
@@ -426,7 +506,8 @@
     if (message?.t === 'yts-toggle-menu') {
       const activeVideo = findActiveVideo();
       if (activeVideo) {
-        const btn = activeVideo.parentElement?.querySelector(`.${BUTTON_CLASS}`) || activeVideo;
+        const host = findHost(activeVideo);
+        const btn = host?.querySelector(`.${BUTTON_CLASS}`) || activeVideo;
         openMenu(activeVideo, btn);
       }
     }

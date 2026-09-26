@@ -14,13 +14,14 @@
   margin: 0 !important;
   border: 0 !important;
   border-radius: 50% !important;
-  background: rgba(11, 15, 25, 0.75) !important;
+  background: rgba(11, 15, 25, 0.85) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 0 10px rgba(0, 242, 254, 0.25) !important;
   cursor: pointer !important;
-  z-index: 100 !important;
-  opacity: 0.85 !important;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+  opacity: 0.92 !important;
   transition: all 0.2s ease !important;
   display: flex !important;
   align-items: center !important;
@@ -39,6 +40,7 @@
   height: 28px !important;
   display: block !important;
   shape-rendering: geometricPrecision !important;
+  pointer-events: none !important;
 }
 
 /* Menu */
