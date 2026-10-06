@@ -63,7 +63,14 @@
     }
   }, true);
 
-  // Proactive resolution on play / timeupdate
+  // Proactive resolution on loadedmetadata and play
+  document.addEventListener('loadedmetadata', (e) => {
+    if (e.target && e.target.tagName === 'VIDEO') {
+      delete e.target.dataset.ytsDirectUrl;
+      resolveVideo(e.target);
+    }
+  }, true);
+
   document.addEventListener('play', (e) => {
     if (e.target && e.target.tagName === 'VIDEO') {
       resolveVideo(e.target);

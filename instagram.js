@@ -106,9 +106,11 @@
   function getVideoUrl(video) {
     if (!video) return null;
 
-    if (video.dataset.ytsDirectUrl?.startsWith('http')) {
-      return video.dataset.ytsDirectUrl;
+    const currentSrc = video.currentSrc || video.src || '';
+    if (video.dataset.ytsBoundSrc && video.dataset.ytsBoundSrc !== currentSrc) {
+      delete video.dataset.ytsDirectUrl;
     }
+    video.dataset.ytsBoundSrc = currentSrc;
 
     try {
       video.dispatchEvent(new CustomEvent('yts-get-instagram-url', { bubbles: true }));
@@ -116,6 +118,10 @@
         return video.dataset.ytsDirectUrl;
       }
     } catch (e) {}
+
+    if (video.dataset.ytsDirectUrl?.startsWith('http')) {
+      return video.dataset.ytsDirectUrl;
+    }
 
     const fiberSrc = extractSrcFromFiber(video);
     if (fiberSrc) return fiberSrc;
@@ -220,9 +226,21 @@
     }
   }
 
+  async function fetchMedia(url) {
+    try {
+      const res = await fetch(url, { credentials: 'omit', cache: 'no-store' });
+      if (res.ok) return res;
+    } catch (e) {}
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) return res;
+    } catch (e) {}
+    return fetch(url, { credentials: 'include', cache: 'no-store' });
+  }
+
   async function fetchBlobDownload(url, filename, notification) {
     notification.set('Загрузка видеопотока…', 0.2);
-    const response = await fetch(url, { credentials: 'include' });
+    const response = await fetchMedia(url);
     if (!response.ok) throw new Error(`сервер отказал (HTTP ${response.status})`);
     const blob = await response.blob();
     const objUrl = URL.createObjectURL(blob);
@@ -233,7 +251,7 @@
 
   async function downloadAudio(ctx, notification) {
     notification.set('Подготовка звуковой дорожки…', 0.1);
-    const response = await fetch(ctx.url, { credentials: 'include' });
+    const response = await fetchMedia(ctx.url);
     if (!response.ok) throw new Error(`не удалось получить видео (HTTP ${response.status})`);
     const arrayBuffer = await response.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
@@ -433,29 +451,24 @@
 
   function findHost(video) {
     if (!video) return null;
-    const vRect = video.getBoundingClientRect();
-    let curr = video.parentElement;
 
-    // Strategy 1: Find ancestor that has player controls/overlays and roughly matches video dimensions
-    while (curr && curr !== document.body) {
-      const r = curr.getBoundingClientRect();
-      const hasControls = !!curr.querySelector('[aria-label*="воспроизвести"], [aria-label*="приостановить"], [aria-label*="play" i], [aria-label*="pause" i], [aria-label*="звук" i], [aria-label*="audio" i], [aria-label*="mute" i], [aria-label*="sound" i]');
-      if (hasControls && r.width > 0 && Math.abs(r.width - vRect.width) < 50 && Math.abs(r.height - vRect.height) < 50) {
-        return curr;
+    // Strategy 1: Find closest ancestor that contains player overlays/controls
+    let p = video.parentElement;
+    for (let i = 0; i < 10 && p && p !== document.body; i++) {
+      const hasOverlay = !!p.querySelector('[aria-label*="воспроизвести"], [aria-label*="приостановить"], [aria-label*="play" i], [aria-label*="pause" i], [aria-label*="звук" i], [aria-label*="audio" i], [aria-label*="mute" i], [aria-label*="sound" i]');
+      if (hasOverlay) {
+        return p;
       }
-      curr = curr.parentElement;
+      p = p.parentElement;
     }
 
-    // Strategy 2: Find first ancestor with multiple children that covers the video
-    curr = video.parentElement;
-    while (curr && curr !== document.body) {
-      if (curr.children.length > 1) {
-        const r = curr.getBoundingClientRect();
-        if (r.width > 0 && Math.abs(r.width - vRect.width) < 50 && Math.abs(r.height - vRect.height) < 50) {
-          return curr;
-        }
-      }
+    // Strategy 2: Ascend through single-child wrappers to find the multi-child container
+    let curr = video;
+    while (curr.parentElement && curr.parentElement.children.length === 1 && curr.parentElement !== document.body) {
       curr = curr.parentElement;
+    }
+    if (curr.parentElement && curr.parentElement !== document.body) {
+      return curr.parentElement;
     }
 
     return video.parentElement;
