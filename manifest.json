@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Studio",
-  "version": "2.2",
+  "version": "2.2.1",
   "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, VK, TikTok, Instagram, Coub и Zvuk, запись трансляций — без внешних сервисов",
   "permissions": [
     "downloads",

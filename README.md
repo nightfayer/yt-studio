@@ -6,7 +6,7 @@
 
 Работает в **Google Chrome**, **Яндекс.Браузере**, **Microsoft Edge**, **Brave**, **Opera** и любых других браузерах на базе Chromium.
 
-![Version](https://img.shields.io/badge/version-2.2-00f2fe)
+![Version](https://img.shields.io/badge/version-2.2.1-00f2fe)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-success?logo=googlechrome&logoColor=white)
 ![Platform](https://img.shields.io/badge/Chromium-All%20Browsers-blue)
 ![Dependencies](https://img.shields.io/badge/Dependencies-None%20(Pure%20Browser)-22c55e)
@@ -20,7 +20,7 @@
 
 Вам **не нужны** Python, консоль, `Start.bat` или сторонний софт. Расширение работает целиком внутри браузера.
 
-1. Скачайте свежий архив со страницы [**Релизов на GitHub**](https://github.com/nightfayer/yt-studio/releases/latest) (файл `yt-studio-v2.2.zip`) и распакуйте в любую удобную папку (или склонируйте через `git clone`).
+1. Скачайте свежий архив со страницы [**Релизов на GitHub**](https://github.com/nightfayer/yt-studio/releases/latest) (файл `yt-studio-v2.2.1.zip`) и распакуйте в любую удобную папку (или склонируйте через `git clone`).
 2. Откройте в браузере страницу управления расширениями:
    - **Google Chrome / Brave**: `chrome://extensions/`
    - **Яндекс.Браузер**: `browser://tune` или `browser://extensions/`

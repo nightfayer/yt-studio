@@ -4141,23 +4141,48 @@
 
     const seekAndWait = async (time) => {
       const startedAt = Date.now();
-      const deadline = startedAt + 15_000;
+      const deadline = startedAt + 10_000;
       let primedPlayback = false;
+
+      try { media.pause(); } catch (e) {}
+      try { player()?.pauseVideo?.(); } catch (e) {}
       try { player()?.seekTo?.(time, true); } catch (e) {}
       try { media.currentTime = time; } catch (e) {}
+
       while (Date.now() < deadline) {
-        const closeEnough = Math.abs((Number(media.currentTime) || 0) - time) <= 0.35;
-        if (!media.seeking && closeEnough) break;
-        // An emptied MSE buffer cannot finish a seek while the element is
-        // paused. Muted playback lets YouTube request the target segment.
-        if (!primedPlayback && Date.now() - startedAt >= 300) {
+        const cur = Number(media.currentTime) || 0;
+        const diff = Math.abs(cur - time);
+
+        if (!media.seeking && diff <= (time === 0 ? 0.8 : 0.4)) {
+          try { media.pause(); } catch (e) {}
+          return;
+        }
+
+        if (!primedPlayback && Date.now() - startedAt >= 400 && media.seeking) {
           primedPlayback = true;
           try { await playWithTimeout(media); } catch (e) {}
+        } else if (primedPlayback) {
+          if (!media.seeking || media.readyState >= 2 || diff > 0.5) {
+            try { media.pause(); } catch (e) {}
+            try { player()?.pauseVideo?.(); } catch (e) {}
+            try { player()?.seekTo?.(time, true); } catch (e) {}
+            try { media.currentTime = time; } catch (e) {}
+            primedPlayback = false;
+          }
         }
         await sleep(50);
       }
-      if (primedPlayback) media.pause();
-      if (media.seeking || Math.abs((Number(media.currentTime) || 0) - time) > 0.35) {
+
+      try { media.pause(); } catch (e) {}
+      try { player()?.pauseVideo?.(); } catch (e) {}
+      try { player()?.seekTo?.(time, true); } catch (e) {}
+      try { media.currentTime = time; } catch (e) {}
+      await sleep(150);
+
+      const finalPos = Number(media.currentTime) || 0;
+      const finalDiff = Math.abs(finalPos - time);
+      log('rendered-audio', `seek to ${time} finished; finalPos=${finalPos} diff=${finalDiff.toFixed(2)} seeking=${media.seeking}`);
+      if (media.seeking && finalDiff > 3.0) {
         throw new Error('плеер не завершил переход к началу аудио');
       }
     };
@@ -4365,21 +4390,48 @@
 
     const seekAndWait = async (time) => {
       const startedAt = Date.now();
-      const deadline = startedAt + 15_000;
+      const deadline = startedAt + 10_000;
       let primedPlayback = false;
+
+      try { media.pause(); } catch (e) {}
+      try { player()?.pauseVideo?.(); } catch (e) {}
       try { player()?.seekTo?.(time, true); } catch (e) {}
       try { media.currentTime = time; } catch (e) {}
+
       while (Date.now() < deadline) {
-        const closeEnough = Math.abs((Number(media.currentTime) || 0) - time) <= 0.35;
-        if (!media.seeking && closeEnough) break;
-        if (!primedPlayback && Date.now() - startedAt >= 300) {
+        const cur = Number(media.currentTime) || 0;
+        const diff = Math.abs(cur - time);
+
+        if (!media.seeking && diff <= (time === 0 ? 0.8 : 0.4)) {
+          try { media.pause(); } catch (e) {}
+          return;
+        }
+
+        if (!primedPlayback && Date.now() - startedAt >= 400 && media.seeking) {
           primedPlayback = true;
           try { await playWithTimeout(media); } catch (e) {}
+        } else if (primedPlayback) {
+          if (!media.seeking || media.readyState >= 2 || diff > 0.5) {
+            try { media.pause(); } catch (e) {}
+            try { player()?.pauseVideo?.(); } catch (e) {}
+            try { player()?.seekTo?.(time, true); } catch (e) {}
+            try { media.currentTime = time; } catch (e) {}
+            primedPlayback = false;
+          }
         }
         await sleep(50);
       }
-      if (primedPlayback) media.pause();
-      if (media.seeking || Math.abs((Number(media.currentTime) || 0) - time) > 0.35) {
+
+      try { media.pause(); } catch (e) {}
+      try { player()?.pauseVideo?.(); } catch (e) {}
+      try { player()?.seekTo?.(time, true); } catch (e) {}
+      try { media.currentTime = time; } catch (e) {}
+      await sleep(150);
+
+      const finalPos = Number(media.currentTime) || 0;
+      const finalDiff = Math.abs(finalPos - time);
+      log('rendered-video', `seek to ${time} finished; finalPos=${finalPos} diff=${finalDiff.toFixed(2)} seeking=${media.seeking}`);
+      if (media.seeking && finalDiff > 3.0) {
         throw new Error('плеер не завершил переход к началу видео');
       }
     };
@@ -4397,10 +4449,11 @@
       if ('preservesPitch' in media) media.preservesPitch = true;
       if ('webkitPreservesPitch' in media) media.webkitPreservesPitch = true;
       setQualityRaw(opts.targetQ);
-      await seekAndWait(0);
-      await playWithTimeout(media);
-      for (let i = 0; i < 30 && currentQuality() !== opts.height; i++) await sleep(200);
-      media.pause();
+      if (currentQuality() !== opts.height) {
+        await playWithTimeout(media);
+        for (let i = 0; i < 30 && currentQuality() !== opts.height; i++) await sleep(200);
+        media.pause();
+      }
       await seekAndWait(0);
 
       stream = captureStream.call(media);
