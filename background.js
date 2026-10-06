@@ -184,7 +184,29 @@ function repairFilename(value) {
   return `${base}${extension}`;
 }
 
-async function saveDownload(url, filename) {
+function detectPlatform(sender, downloadUrl, filename) {
+  const pageUrl = sender?.tab?.url || sender?.url || '';
+  if (pageUrl.includes('youtube.com') || pageUrl.includes('youtu.be')) return 'YouTube';
+  if (pageUrl.includes('instagram.com')) return 'Instagram';
+  if (pageUrl.includes('tiktok.com')) return 'TikTok';
+  if (pageUrl.includes('rutube.ru') || pageUrl.includes('rutube.sport')) return 'Rutube';
+  if (pageUrl.includes('twitch.tv')) return 'Twitch';
+  if (pageUrl.includes('vk.com') || pageUrl.includes('vkvideo.ru')) return 'VK';
+  if (pageUrl.includes('coub.com')) return 'Coub';
+  if (pageUrl.includes('zvuk.com')) return 'Zvuk';
+
+  const fn = String(filename || '');
+  if (fn.startsWith('TikTok -')) return 'TikTok';
+  if (fn.startsWith('Rutube -') || fn.includes('Rutube')) return 'Rutube';
+  if (fn.startsWith('Twitch -') || fn.includes('Twitch')) return 'Twitch';
+  if (fn.startsWith('VK -') || fn.includes('VK')) return 'VK';
+  if (fn.startsWith('Coub -')) return 'Coub';
+  if (fn.startsWith('Zvuk -')) return 'Zvuk';
+  if (fn.includes('instagram') || fn.includes('_cover.jpg')) return 'Instagram';
+  return 'YouTube';
+}
+
+async function saveDownload(url, filename, folder) {
   if (typeof url !== 'string' || !url) throw new Error('download URL is missing');
   if (typeof filename !== 'string' || !filename) throw new Error('download filename is missing');
   const repaired = repairFilename(filename);
@@ -195,6 +217,16 @@ async function saveDownload(url, filename) {
       text: `filename repaired: ${JSON.stringify(filename)} -> ${JSON.stringify(repaired)}`,
     }).catch(() => {});
   }
+
+  let finalFilename = repaired;
+  if (filename !== ERROR_LOG_FILENAME) {
+    const stored = await chrome.storage.local.get('yts_settings').catch(() => ({}));
+    if (stored?.yts_settings?.subfolders) {
+      const platformFolder = folder || 'YouTube';
+      finalFilename = `YT Studio/${platformFolder}/${repaired}`;
+    }
+  }
+
   await chrome.storage.local.set({
     yts_active_download: {
       filename: repaired,
@@ -206,7 +238,20 @@ async function saveDownload(url, filename) {
   setTimeout(() => {
     chrome.storage.local.remove('yts_active_download').catch(() => {});
   }, 4000);
-  return chrome.downloads.download({ url, filename: repaired, saveAs: false });
+
+  const downloadId = await chrome.downloads.download({ url, filename: finalFilename, saveAs: false });
+
+  if (Number.isInteger(downloadId)) {
+    chrome.storage.local.get('yts_download_ids').then((res) => {
+      const ids = Array.isArray(res.yts_download_ids) ? res.yts_download_ids : [];
+      if (!ids.includes(downloadId)) {
+        ids.unshift(downloadId);
+        chrome.storage.local.set({ yts_download_ids: ids.slice(0, 50) });
+      }
+    }).catch(() => {});
+  }
+
+  return downloadId;
 }
 
 function validateCaptionUrl(value) {
@@ -495,7 +540,8 @@ async function handleMessage(message, sender) {
       return flushRecoveredFiles();
 
     case 'yts-save': {
-      const id = await saveDownload(message.url, message.filename);
+      const platform = message.platform || detectPlatform(sender, message.url, message.filename);
+      const id = await saveDownload(message.url, message.filename, platform);
       return { ok: true, id };
     }
 

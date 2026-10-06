@@ -23,6 +23,7 @@
     vkQuality: 'auto',
     rutubeQuality: 'auto',
     filenameTemplate: 'title',
+    subfolders: false,
   };
 
   // Rungs offered in the popup.
@@ -50,6 +51,7 @@
       vkQuality: normalizeQuality(stored.vkQuality, VK_HEIGHTS),
       rutubeQuality: normalizeQuality(stored.rutubeQuality, RUTUBE_HEIGHTS),
       filenameTemplate: stored.filenameTemplate === 'author_title' ? 'author_title' : 'title',
+      subfolders: Boolean(stored.subfolders),
     };
   }
 

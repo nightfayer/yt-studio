@@ -169,11 +169,21 @@
     }, { v: videos[0], dist: Infinity }).v;
   }
 
+  function getCoverUrl(video) {
+    if (!video) return null;
+    if (video.dataset.ytsCoverUrl?.startsWith('http')) return video.dataset.ytsCoverUrl;
+    if (video.poster && video.poster.startsWith('http')) return video.poster;
+    const ogImg = document.querySelector('meta[property="og:image"]')?.content;
+    if (ogImg && ogImg.startsWith('http')) return ogImg;
+    return null;
+  }
+
   function resolveVideoContext(video) {
     const container = video.closest('article') || video.closest('div[role="dialog"]') || video.closest('section') || video.parentElement;
     const author = getAuthorFromContainer(container) || location.pathname.replace(/^\/|\/$/g, '').split('/')[0] || '';
     const code = shortcodeFrom() || shortcodeFrom(container?.querySelector('a[href*="/p/"], a[href*="/reel/"]')?.href) || `${Date.now()}`;
     const url = getVideoUrl(video);
+    const coverUrl = getCoverUrl(video);
     const duration = Number(video.duration) || 0;
 
     let title = code;
@@ -187,6 +197,7 @@
       video,
       container,
       url,
+      coverUrl,
       author,
       code,
       title: safeName(title) || 'instagram_video',
@@ -197,7 +208,7 @@
   // ---- downloads -------------------------------------------------------------
 
   async function saveDirect(url, filename) {
-    const saved = await chrome.runtime.sendMessage({ t: 'yts-save', url, filename });
+    const saved = await chrome.runtime.sendMessage({ t: 'yts-save', url, filename, platform: 'Instagram' });
     if (!saved?.ok) throw new Error(saved?.error || 'не удалось передать загрузку браузеру');
     return saved.id;
   }
@@ -417,11 +428,72 @@
     });
 
     menu.append(videoItem, audioItem);
+
+    if (ctx.coverUrl) {
+      const coverItem = createElement('div', 'yts-insta-item');
+      coverItem.append(createElement('b', null, '🖼️ Скачать обложку (JPG)'));
+      coverItem.append(createElement('span', 'yts-insta-hint', 'Оригинальный кадр / постер'));
+      coverItem.addEventListener('click', async () => {
+        closeMenu();
+        if (busy) return;
+        busy = true;
+        const toast = getToast();
+        try {
+          const filename = `${ctx.title}_cover.jpg`;
+          toast.set('Загрузка обложки…', 0.2);
+          const response = await fetchMedia(ctx.coverUrl);
+          if (!response.ok) throw new Error(`сервер отказал (HTTP ${response.status})`);
+          const blob = await response.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const downloadId = await saveDirect(objUrl, filename);
+          await followBrowserDownload(downloadId, toast);
+          URL.revokeObjectURL(objUrl);
+          toast.set(`Готово: ${filename}`, 1);
+          toast.hide(4000);
+        } catch (err) {
+          toast.set(`Ошибка: ${String(err?.message || err)}`, 1);
+          toast.hide(7000);
+          void reportError('download-cover', err);
+        } finally {
+          busy = false;
+        }
+      });
+      menu.append(coverItem);
+    }
+
+    const copyItem = createElement('div', 'yts-insta-item');
+    copyItem.append(createElement('b', null, '📋 Копировать ссылку на видео'));
+    copyItem.append(createElement('span', 'yts-insta-hint', 'Прямая ссылка на поток в буфер'));
+    copyItem.addEventListener('click', async () => {
+      closeMenu();
+      const toast = getToast();
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(ctx.url);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = ctx.url;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.append(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        toast.set('Прямая ссылка скопирована в буфер обмена', 1);
+        toast.hide(3500);
+      } catch (err) {
+        toast.set('Не удалось скопировать ссылку', 1);
+        toast.hide(4000);
+      }
+    });
+    menu.append(copyItem);
+
     document.body.append(menu);
 
     const box = button.getBoundingClientRect();
     const menuWidth = 240;
-    const menuHeight = 120;
+    const menuHeight = ctx.coverUrl ? 210 : 160;
     menu.style.left = `${Math.max(12, Math.min(window.innerWidth - menuWidth - 12, box.left))}px`;
     menu.style.top = box.top > menuHeight + 16
       ? `${box.top - menuHeight - 8}px`

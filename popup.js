@@ -136,6 +136,8 @@ async function setupSettings() {
   if (vkQuality) vkQuality.value = String(current.vkQuality || 'auto');
   if (rtQuality) rtQuality.value = String(current.rutubeQuality || 'auto');
   if (nameTemplate) nameTemplate.value = String(current.filenameTemplate || 'title');
+  const subfoldersToggle = document.getElementById('subfolders-enabled');
+  if (subfoldersToggle) subfoldersToggle.checked = Boolean(current.subfolders);
 
   const note = (text) => { settingsHint.textContent = text; };
   const persist = async (patch, message) => {
@@ -183,6 +185,14 @@ async function setupSettings() {
     nameTemplate.addEventListener('change', () => persist(
       { filenameTemplate: nameTemplate.value },
       'Сохранено. Формат имени файла обновлен.',
+    ));
+  }
+  if (subfoldersToggle) {
+    subfoldersToggle.addEventListener('change', () => persist(
+      { subfolders: subfoldersToggle.checked },
+      subfoldersToggle.checked
+        ? 'Сортировка включена: файлы сохраняются в YT Studio/{Сервис}/.'
+        : 'Сортировка отключена: файлы сохраняются в общую папку загрузок.',
     ));
   }
 }
@@ -256,3 +266,85 @@ exportButton.addEventListener('click', async () => {
     ? 'Журнал сохранён в загрузки (YTS-debug.txt)'
     : `Не удалось сохранить журнал: ${result?.error || 'ошибка'}`;
 });
+
+// ---- Recent downloads history ------------------------------------------
+
+function formatFileSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (!value) return '';
+  return value >= 1e9 ? `${(value / 1e9).toFixed(1)} ГБ`
+    : value >= 1e6 ? `${(value / 1e6).toFixed(1)} МБ`
+    : `${Math.round(value / 1e3)} КБ`;
+}
+
+async function renderRecentDownloads() {
+  const container = document.getElementById('recent-downloads-list');
+  if (!container || !chrome.downloads?.search) return;
+
+  const stored = await chrome.storage.local.get('yts_download_ids').catch(() => ({}));
+  const myIds = new Set(Array.isArray(stored.yts_download_ids) ? stored.yts_download_ids : []);
+
+  const items = await chrome.downloads.search({ limit: 40, orderBy: ['-startTime'] }).catch(() => []);
+  const relevant = items.filter((item) =>
+    myIds.has(item.id) ||
+    item.byExtensionId === chrome.runtime.id ||
+    (item.filename && item.filename.includes('YT Studio'))
+  ).slice(0, 15);
+
+  if (!relevant.length) {
+    container.innerHTML = '<div class="recent-empty">История загрузок пуста</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const item of relevant) {
+    const el = document.createElement('div');
+    el.className = 'recent-item';
+
+    const info = document.createElement('div');
+    info.className = 'recent-info';
+
+    const rawName = item.filename || '';
+    const name = rawName.split(/[/\\]/).pop() || 'Файл';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'recent-name';
+    nameEl.textContent = name;
+    nameEl.title = rawName;
+
+    const metaEl = document.createElement('span');
+    metaEl.className = 'recent-meta';
+
+    let statusText = 'Завершено';
+    let statusClass = 'status-complete';
+    if (item.state === 'in_progress') {
+      const pct = item.totalBytes ? Math.round((item.bytesReceived / item.totalBytes) * 100) : 0;
+      statusText = pct ? `${pct}%` : 'Скачивание…';
+      statusClass = 'status-in_progress';
+    } else if (item.state === 'interrupted') {
+      statusText = 'Прервано';
+      statusClass = 'status-interrupted';
+    }
+
+    const sizeText = item.fileSize || item.totalBytes ? formatFileSize(item.fileSize || item.totalBytes) : '';
+    metaEl.innerHTML = `<span class="${statusClass}">${statusText}</span>${sizeText ? ` · <span>${sizeText}</span>` : ''}`;
+
+    info.append(nameEl, metaEl);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'recent-show-btn';
+    btn.textContent = 'Папка';
+    btn.title = 'Показать в папке загрузок';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chrome.downloads.show(item.id);
+    });
+
+    el.append(info, btn);
+    container.append(el);
+  }
+}
+
+renderRecentDownloads();
+chrome.downloads?.onChanged?.addListener(() => renderRecentDownloads());
+chrome.downloads?.onCreated?.addListener(() => renderRecentDownloads());

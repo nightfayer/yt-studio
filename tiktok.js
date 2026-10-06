@@ -177,7 +177,7 @@
 
   const itemCache = new Map();
 
-  async function loadItem(id, href) {
+  async function loadItem(id, href, entry) {
     const cached = itemCache.get(id);
     if (cached) return cached;
     // The page currently open already carries its own item; anything else is
@@ -195,14 +195,58 @@
         } catch (error) { /* fall through to the fetch */ }
       }
     }
-    if (!href) throw new Error('не удалось определить адрес этого видео');
-    const response = await fetch(new URL(href, location.origin).href, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`страница видео не открылась (HTTP ${response.status})`);
-    const item = itemFromUniversal(parseUniversalData(await response.text()));
-    if (!item) throw new Error('в странице нет данных видео (TikTok мог потребовать вход)');
-    const described = describe(item);
-    itemCache.set(id, described);
-    return described;
+    if (href) {
+      try {
+        const response = await fetch(new URL(href, location.origin).href, { cache: 'no-store' });
+        if (response.ok) {
+          const item = itemFromUniversal(parseUniversalData(await response.text()));
+          if (item) {
+            const described = describe(item);
+            itemCache.set(id, described);
+            return described;
+          }
+        }
+      } catch (e) {
+        log('item', `fetch error for ${id}: ${String(e?.message || e)}`);
+      }
+    }
+
+    // Anti-captcha fallback: extract stream directly from active player <video> element
+    const video = entry?.video || document.querySelector(`div[id*="${id}"] video`) || document.querySelector('video');
+    const streamUrl = video?.currentSrc || video?.src;
+    if (streamUrl && streamUrl.startsWith('http')) {
+      const container = entry?.container || video.closest('article, [data-e2e="recommend-list-item-container"]') || document;
+      const author = (entry?.rail?.querySelector(AVATAR_SELECTOR)?.getAttribute('href') || '')
+        .replace(/^\/@|\/$/g, '')
+        || document.querySelector('[data-e2e="browser-nickname"], [data-e2e="user-title"]')?.textContent?.trim()
+        || 'tiktok';
+      const descText = container?.querySelector?.('[data-e2e="browse-video-desc"], [data-e2e="user-post-item-desc"]')?.textContent?.trim()
+        || document.querySelector('[data-e2e="browse-video-desc"]')?.textContent?.trim()
+        || id;
+      const height = video.videoHeight || 720;
+      const rungs = [{
+        gear: 'stream',
+        height,
+        bitrate: 0,
+        size: 0,
+        urls: [streamUrl],
+        label: `${height}p (прямой поток)`,
+        best: true,
+      }];
+      const described = {
+        id: String(id || ''),
+        author: safeName(author) || 'tiktok',
+        title: safeName(descText) || id,
+        duration: Number(video.duration) || 0,
+        rungs,
+        music: { url: '', title: '', author: '' },
+        base: `TikTok - ${safeName(author)} - ${safeName(descText)}`,
+      };
+      itemCache.set(id, described);
+      return described;
+    }
+
+    throw new Error('в странице нет данных видео (TikTok мог потребовать вход или капчу)');
   }
 
   // ---- transfer --------------------------------------------------------------
@@ -315,11 +359,21 @@
     return { chunks, bytes: received, type };
   }
 
-  // Nothing here needs assembling, so the file never leaves the page: a blob
-  // and an anchor click save the CDN's own bytes untouched — the same route the
-  // Twitch recorder uses for a finished recording.
-  function saveBlob(chunks, type, filename) {
-    const url = URL.createObjectURL(new Blob(chunks, { type }));
+  // Saves file either through service worker (to support folder routing and history)
+  // or via direct anchor click if background download is restricted.
+  async function saveBlob(chunks, type, filename) {
+    const blob = new Blob(chunks, { type });
+    const url = URL.createObjectURL(blob);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        t: 'yts-save', url, filename, platform: 'TikTok'
+      });
+      if (response?.ok && Number.isInteger(response.id)) {
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+    } catch (e) {}
+
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = filename;
@@ -340,7 +394,7 @@
     for (const url of rung.urls) {
       try {
         const file = await fetchWholeFile(url, notification, 'file', 'Скачивание видео');
-        saveBlob(file.chunks, file.type || 'video/mp4', filename);
+        await saveBlob(file.chunks, file.type || 'video/mp4', filename);
         notification.stage('file', 1, 'done', 'Скачивание видео');
         log('video', `saved ${info.id}; rung=${rung.label} bytes=${file.bytes}`);
         return filename;
@@ -365,7 +419,7 @@
   async function downloadSoundOriginal(info, notification) {
     const filename = `${soundName(info)}.m4a`;
     const file = await fetchWholeFile(info.music.url, notification, 'file', 'Скачивание звука');
-    saveBlob(file.chunks, file.type || 'audio/mp4', filename);
+    await saveBlob(file.chunks, file.type || 'audio/mp4', filename);
     notification.stage('file', 1, 'done', 'Скачивание звука');
     log('sound', `saved ${info.id}; bytes=${file.bytes} format=m4a`);
     return filename;
@@ -430,7 +484,7 @@
       }
       notification.begin(choice.kind === 'sound' ? 'Скачиваю звук…' : 'Скачиваю видео…', stages);
       notification.stage('file', null, 'active', 'Читаю данные видео');
-      const info = entry.info || await loadItem(entry.id, entry.href);
+      const info = entry.info || await loadItem(entry.id, entry.href, entry);
       entry.info = info;
       const filename = choice.kind === 'sound'
         ? await downloadSound(info, choice.audioFormat, notification)
@@ -570,7 +624,8 @@
     const href = author.startsWith('/@')
       ? `${author}/video/${id}`
       : (videoIdFrom(location.pathname) === id ? location.href : '');
-    return { id, href };
+    const video = wrapper?.querySelector('video') || container?.querySelector('video');
+    return { id, href, video, container, rail };
   }
 
   async function openMenu(button, entry, event) {
@@ -587,7 +642,7 @@
     document.addEventListener('click', onOutsideClick, true);
 
     try {
-      const info = await loadItem(entry.id, entry.href);
+      const info = await loadItem(entry.id, entry.href, entry);
       if (!menu) return;
       loading.remove();
       menu.append(createElement('div', 'yts-tiktok-menu-note',
