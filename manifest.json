@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Studio",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Скачивание видео/аудио/субтитров YouTube, Rutube, Twitch, VK, TikTok, Instagram, Coub и Zvuk, запись трансляций — без внешних сервисов",
   "permissions": [
     "downloads",
@@ -24,6 +24,16 @@
     "https://vkvideo.ru/*",
     "https://*.vkvideo.ru/*",
     "https://vk.com/*",
+    "https://*.vk.com/*",
+    "https://vk.ru/*",
+    "https://*.vk.ru/*",
+    "https://*.okcdn.ru/*",
+    "https://*.mycdn.me/*",
+    "https://*.vkuservideo.net/*",
+    "https://*.vkuservideo.com/*",
+    "https://*.vkcache.com/*",
+    "https://*.userapi.com/*",
+    "https://*.vk.me/*",
     "https://zvuk.com/*",
     "https://*.zvuk.com/*",
     "https://www.tiktok.com/*",
@@ -138,8 +148,10 @@
       "matches": [
         "https://vkvideo.ru/*",
         "https://*.vkvideo.ru/*",
-        "https://vk.com/video*",
-        "https://vk.com/clip*"
+        "https://vk.com/*",
+        "https://*.vk.com/*",
+        "https://vk.ru/*",
+        "https://*.vk.ru/*"
       ],
       "js": [
         "settings.js",

@@ -191,7 +191,7 @@ function detectPlatform(sender, downloadUrl, filename) {
   if (pageUrl.includes('tiktok.com')) return 'TikTok';
   if (pageUrl.includes('rutube.ru') || pageUrl.includes('rutube.sport')) return 'Rutube';
   if (pageUrl.includes('twitch.tv')) return 'Twitch';
-  if (pageUrl.includes('vk.com') || pageUrl.includes('vkvideo.ru')) return 'VK';
+  if (pageUrl.includes('vk.com') || pageUrl.includes('vkvideo.ru') || pageUrl.includes('vk.ru')) return 'VK';
   if (pageUrl.includes('coub.com')) return 'Coub';
   if (pageUrl.includes('zvuk.com')) return 'Zvuk';
 

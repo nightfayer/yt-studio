@@ -18,7 +18,7 @@
   const BUTTON_CLASS = 'yts-vk-btn';
   const SLICE_BYTES = 8 * 1024 * 1024;
   const TRANSFER_CHUNK_SIZE = 4 * 1024 * 1024;
-  const VIDEO_ID_RE = /\/(?:video|clip)(-?\d+)_(\d+)/;
+  const VIDEO_ID_RE = /(?:^|[/?&=%2F])(?:video|clip)(-?\d+)_(\d+)/i;
 
   let menu;
   let busy = false;
@@ -69,8 +69,32 @@
   // ---- player payload --------------------------------------------------------
 
   function videoIdFrom(href) {
-    const match = VIDEO_ID_RE.exec(String(href || ''));
-    return match ? { oid: match[1], id: match[2] } : null;
+    const raw = String(href || '');
+    let match = VIDEO_ID_RE.exec(raw);
+    if (!match) {
+      try {
+        const decoded = decodeURIComponent(raw);
+        match = VIDEO_ID_RE.exec(decoded);
+      } catch (_) {}
+    }
+    if (match) return { oid: match[1], id: match[2] };
+
+    // Inspect active DOM elements (e.g. opened modal, video box)
+    if (!href || href === location.href || href === location.pathname) {
+      const candidates = [
+        document.querySelector('[data-video-id]'),
+        document.querySelector('#mv_box'),
+        document.querySelector('div.video_box_wrap'),
+        document.querySelector('[id^="video_box_wrap"]'),
+      ];
+      for (const el of candidates) {
+        if (!el) continue;
+        const attr = el.getAttribute?.('data-video-id') || el.getAttribute?.('data-id') || el.id;
+        const m = /(-?\d+)_(\d+)/.exec(String(attr || ''));
+        if (m) return { oid: m[1], id: m[2] };
+      }
+    }
+    return null;
   }
 
   // The payload is HTML with an embedded JSON blob; `files` is pulled out by
@@ -109,17 +133,31 @@
   }
 
   async function loadVideo(target) {
-    const ids = videoIdFrom(target) || videoIdFrom(location.pathname);
+    const ids = videoIdFrom(target) || videoIdFrom(location.href) || videoIdFrom(location.pathname);
     if (!ids) throw new Error('не удалось определить видео');
-    const url = `${location.origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}`
-      + `&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
-    // With cookies: age-restricted and closed-group videos answer with an error
-    // payload otherwise, and the site itself loads the player the same way.
-    const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
-    if (!response.ok) throw new Error(`страница плеера не открылась (HTTP ${response.status})`);
-    // VK still serves this endpoint as windows-1251. Read as UTF-8 the title
-    // decodes to replacement characters and the saved file is called
-    // "VK - ???????.m4a", so the charset is taken from the response itself.
+
+    const origin = (location.origin.includes('vkvideo.ru') || location.origin.includes('vk.com') || location.origin.includes('vk.ru'))
+      ? location.origin
+      : 'https://vk.com';
+
+    let url = `${origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
+    let response = await fetch(url, { credentials: 'include', cache: 'no-store' }).catch(() => null);
+
+    // If current origin returned an error or was blocked, fallback to alternate origin
+    if (!response || !response.ok) {
+      const fallbackOrigin = origin.includes('vkvideo.ru') ? 'https://vk.com' : 'https://vkvideo.ru';
+      const fallbackUrl = `${fallbackOrigin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
+      const fallbackRes = await fetch(fallbackUrl, { credentials: 'include', cache: 'no-store' }).catch(() => null);
+      if (fallbackRes && fallbackRes.ok) {
+        response = fallbackRes;
+        url = fallbackUrl;
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw new Error(`страница плеера не открылась (HTTP ${response?.status || 'network error'})`);
+    }
+
     const html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
     const files = extractObject(html, 'files');
     if (!files) {
@@ -567,44 +605,71 @@
     .${BUTTON_CLASS} svg { width: 26px; height: 26px; display: block; }
   `;
 
-  function playerShadowRoot() {
-    for (const host of document.querySelectorAll('div.shadow-root-container')) {
-      if (!host.shadowRoot) continue;
-      const box = host.getBoundingClientRect();
-      if (box.width > 200 && box.height > 150) return host.shadowRoot;
+  function findActivePlayer() {
+    // 1. Visible <video> tag
+    const videos = [...document.querySelectorAll('video')];
+    for (const video of videos) {
+      const box = video.getBoundingClientRect();
+      if (box.width > 160 && box.height > 90) {
+        let cur = video.parentElement;
+        while (cur && cur !== document.body) {
+          const cBox = cur.getBoundingClientRect();
+          if (cBox.width >= box.width - 10 && cBox.height >= box.height - 10 && cBox.height > 100) {
+            return cur;
+          }
+          cur = cur.parentElement;
+        }
+        return video.parentElement;
+      }
+    }
+
+    // 2. VK Video player / modal elements
+    const selectors = [
+      'div.video_box_wrap',
+      '#video_box_wrap',
+      '#mv_box',
+      '[class*="VideoPlayer__player"]',
+      '[class*="VideoPlayer__aspectRatio"]',
+      '[class*="videoplayer"]',
+      '[class*="VideoModal"]',
+      '[class*="video_box"]',
+      'div.shadow-root-container',
+    ];
+    for (const sel of selectors) {
+      for (const el of document.querySelectorAll(sel)) {
+        const b = el.getBoundingClientRect();
+        if (b.width > 200 && b.height > 120) return el;
+      }
     }
     return null;
   }
 
-  function visiblePlayerBox() {
-    for (const element of document.querySelectorAll('[class*="VideoPlayer__aspectRatio"], [class*="VideoPlayer__player"]')) {
-      const box = element.getBoundingClientRect();
-      if (box.width > 200 && box.height > 150) return element;
+  function mountInControls(container) {
+    if (container.querySelector(`.${BUTTON_CLASS}`)) return true;
+    const root = container.shadowRoot || container;
+    const controls = root.querySelector?.('[class*="player_controls"], [class*="controls"], [class*="Controls"], [class*="bottom_controls"], [class*="box_controls"]');
+    if (!controls) return false;
+
+    const buttons = [...controls.querySelectorAll('button, div[role="button"]')];
+    if (!buttons.length) return false;
+
+    const anchor = buttons[buttons.length - 1];
+    if (anchor && anchor.parentElement) {
+      const btn = makeButton();
+      btn.classList.add('yts-vk-control-btn');
+      anchor.parentElement.insertBefore(btn, anchor);
+      return true;
     }
-    return null;
+    return false;
   }
 
-  function makeButton() {
-    const button = document.createElement('button');
-    button.className = BUTTON_CLASS;
-    button.type = 'button';
-    button.title = 'Скачать видео (YT Studio)';
-    button.setAttribute('aria-label', button.title);
-    button.append(createIcon());
-    button.addEventListener('click', (event) => { void openMenu(button, event); });
-    return button;
-  }
-
-  // Into the control row, immediately left of the right-most control. The row is
-  // found by geometry rather than by label: VK's buttons carry localized
-  // aria-labels and hashed classes, but their place on screen is stable.
   function mountInShadow(root) {
     if (root.querySelector(`.${BUTTON_CLASS}`)) return true;
-    const host = root.host.getBoundingClientRect();
+    const host = root.host?.getBoundingClientRect?.() || { bottom: 0, height: 0 };
     const controls = [...root.querySelectorAll('button')]
       .map((element) => ({ element, box: element.getBoundingClientRect() }))
       .filter((candidate) => candidate.box.width > 8
-        && candidate.box.bottom > host.bottom - host.height * 0.2);
+        && candidate.box.bottom > host.bottom - host.height * 0.25);
     if (!controls.length) return false;
     const rightMost = controls.sort((left, right) => right.box.right - left.box.right)[0].element;
     const wrapper = rightMost.closest('.tooltip-wrapper') || rightMost;
@@ -621,19 +686,28 @@
   }
 
   function ensureButton() {
-    if (!videoIdFrom(location.pathname)) {
+    const id = videoIdFrom(location.href) || videoIdFrom(location.pathname);
+    const hasPlayer = document.querySelector('video, div.video_box_wrap, #mv_box, [data-video-id]');
+    if (!id && !hasPlayer) {
       document.querySelectorAll(`.${BUTTON_CLASS}`).forEach((node) => node.remove());
       return;
     }
-    const root = playerShadowRoot();
-    if (root && mountInShadow(root)) return;
-    // Fallback for a player without the shadow root: an overlay in the corner.
-    const anchor = visiblePlayerBox();
-    if (!anchor || anchor.querySelector(`.${BUTTON_CLASS}`)) return;
+
+    const shadowHost = document.querySelector('div.shadow-root-container');
+    if (shadowHost?.shadowRoot && mountInShadow(shadowHost.shadowRoot)) return;
+
+    const container = findActivePlayer();
+    if (!container) return;
+    if (container.querySelector(`.${BUTTON_CLASS}`)) return;
+
+    if (mountInControls(container)) return;
+
     const button = makeButton();
     button.classList.add('yts-vk-overlay');
-    if (getComputedStyle(anchor).position === 'static') anchor.style.position = 'relative';
-    anchor.appendChild(button);
+    if (getComputedStyle(container).position === 'static') {
+      container.style.position = 'relative';
+    }
+    container.appendChild(button);
   }
 
   // An interval, not requestAnimationFrame: rAF does not run in a hidden tab,
