@@ -34,6 +34,8 @@ const HANDLED_MESSAGES = new Set([
   'yts-clear-reload-guard',
   'yts-ping',
   'yts-flush-recovered',
+  'yts-vk-payload',
+  'yts-fetch-text',
 ]);
 const RECOVERY_KEY = 'yts_recovered';
 
@@ -570,6 +572,56 @@ async function handleMessage(message, sender) {
       });
       const text = await response.text();
       return { ok: response.ok, status: response.status, len: text.length, text };
+    }
+
+    case 'yts-vk-payload': {
+      const { oid, id } = message;
+      if (!oid || !id) return { ok: false, error: 'отсутствует ID видео' };
+
+      const urls = [
+        `https://vk.com/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
+        `https://vkvideo.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
+        `https://vk.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
+      ];
+
+      for (const url of urls) {
+        try {
+          const response = await fetch(url, {
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+          });
+          if (!response.ok) continue;
+          const text = await response.text();
+          if (text.includes('act=autologin') || text.includes('login.vk.ru') || text.includes('login_mobile')) {
+            continue;
+          }
+          if (text.includes('"files"')) {
+            return { ok: true, html: text, url };
+          }
+        } catch (err) {
+          // try next url
+        }
+      }
+      return { ok: false, error: 'не удалось получить данные видео от VK (возможно, видео приватное или удалено)' };
+    }
+
+    case 'yts-fetch-text': {
+      const url = String(message.url || '');
+      if (!url.startsWith('https://')) return { ok: false, error: 'invalid url' };
+      try {
+        const response = await fetch(url, {
+          credentials: message.credentials || 'omit',
+          cache: 'no-store',
+        });
+        const text = await response.text();
+        return { ok: response.ok, status: response.status, text };
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
+      }
     }
 
     case 'yts-register-job':

@@ -136,47 +136,43 @@
     const ids = videoIdFrom(target) || videoIdFrom(location.href) || videoIdFrom(location.pathname);
     if (!ids) throw new Error('не удалось определить видео');
 
-    const origins = [
-      'https://vk.com',
-      location.origin.includes('vkvideo.ru') || location.origin.includes('vk.com') || location.origin.includes('vk.ru')
-        ? location.origin
-        : 'https://vkvideo.ru',
-      'https://vkvideo.ru',
-      'https://vk.ru',
-    ];
+    // 1. Fetch via background service worker to bypass page CORS and redirects
+    const bgResult = await chrome.runtime.sendMessage({
+      t: 'yts-vk-payload',
+      oid: ids.oid,
+      id: ids.id,
+    }).catch(() => null);
 
-    const uniqueOrigins = [...new Set(origins)];
-    let lastError = null;
+    let html = bgResult?.ok ? bgResult.html : '';
 
-    for (const origin of uniqueOrigins) {
+    // 2. Fallback to in-page fetch if background was unreachable
+    if (!html) {
       try {
-        const url = `${origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
+        const url = `https://vkvideo.ru/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
         const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
-        if (!response.ok) continue;
-
-        const html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
-        if (html.includes('login.vk.ru') || html.includes('login_mobile') || html.includes('act=autologin')) {
-          continue;
+        if (response.ok) {
+          html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
         }
-
-        const files = extractObject(html, 'files');
-        if (files && Object.keys(files).length > 0) {
-          const durationMatch = html.match(/"duration":(\d+)/);
-          return {
-            ...ids,
-            files,
-            duration: durationMatch ? Number(durationMatch[1]) : 0,
-            title: extractString(html, 'md_title') || extractString(html, 'title') || `video${ids.oid}_${ids.id}`,
-          };
-        }
-        const reason = extractString(html, 'error_msg') || extractString(html, 'msg');
-        if (reason) lastError = new Error(reason);
-      } catch (err) {
-        lastError = err;
-      }
+      } catch (_) {}
     }
 
-    throw lastError || new Error('в ответе плеера нет ссылок на файлы (возможно, требуется авторизация в VK)');
+    if (!html) {
+      throw new Error(bgResult?.error || 'не удалось получить данные видео');
+    }
+
+    const files = extractObject(html, 'files');
+    if (!files || Object.keys(files).length === 0) {
+      const reason = extractString(html, 'error_msg') || extractString(html, 'msg');
+      throw new Error(reason || 'в ответе плеера нет ссылок на файлы (возможно, требуется авторизация в VK)');
+    }
+
+    const durationMatch = html.match(/"duration":(\d+)/);
+    return {
+      ...ids,
+      files,
+      duration: durationMatch ? Number(durationMatch[1]) : 0,
+      title: extractString(html, 'md_title') || extractString(html, 'title') || `video${ids.oid}_${ids.id}`,
+    };
   }
 
   function progressiveRungs(files) {
@@ -192,9 +188,19 @@
   // whole-file video comes from the progressive URLs, which cost nothing.
   async function loadAudioTrack(files) {
     if (!files.dash_sep) throw new Error('у этого видео нет отдельной аудиодорожки');
-    const response = await fetch(files.dash_sep, { credentials: 'omit', cache: 'no-store' });
-    if (!response.ok) throw new Error(`манифест DASH не открылся (HTTP ${response.status})`);
-    const manifest = new DOMParser().parseFromString(await response.text(), 'application/xml');
+    let xmlText = '';
+    try {
+      const response = await fetch(files.dash_sep, { credentials: 'omit', cache: 'no-store' });
+      if (response.ok) xmlText = await response.text();
+    } catch (_) {}
+
+    if (!xmlText) {
+      const bgRes = await chrome.runtime.sendMessage({ t: 'yts-fetch-text', url: files.dash_sep }).catch(() => null);
+      if (bgRes?.ok && bgRes.text) xmlText = bgRes.text;
+    }
+    if (!xmlText) throw new Error('манифест DASH не открылся');
+
+    const manifest = new DOMParser().parseFromString(xmlText, 'application/xml');
     const sets = [...manifest.querySelectorAll('AdaptationSet')];
     const audioSet = sets.find((set) => /^audio/.test(set.getAttribute('mimeType') || ''))
       || sets.find((set) => [...set.querySelectorAll('Representation')]
