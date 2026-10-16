@@ -68,11 +68,20 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .1);
-  transition: background .1s ease-in-out;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.yts-shorts-btn:hover .yts-shorts-circle { background: rgba(255, 255, 255, .2); }
+.yts-shorts-btn:hover .yts-shorts-circle {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(0, 242, 254, 0.5);
+  box-shadow: 0 4px 18px rgba(0, 242, 254, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  transform: scale(1.05);
+}
 
 /* Centred by the circle's own flexbox — never absolutely positioned against
    the taller button, which would drop the icon towards the caption. */
@@ -99,97 +108,126 @@
   color: #00f2fe;
   font-weight: 700;
   text-shadow:
-    0 0 6px rgba(255, 243, 191, .9),
-    0 0 14px rgba(255, 236, 160, .45);
+    0 0 6px rgba(0, 242, 254, 0.6),
+    0 0 14px rgba(0, 242, 254, 0.3);
 }
 .yts-brand-head a.yts-update-link:hover {
-  color: #00f2fe;
+  color: #38bdf8;
   text-decoration: underline;
 }
+
+/* ---- Apple Glass Menu ---------------------------------------------------- */
 
 .yts-menu {
   position: fixed;
   z-index: 2147483647;
-  background: rgba(28,28,28,.97);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
-  padding: 6px;
-  min-width: 240px;
+  background: rgba(20, 23, 30, 0.78);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  padding: 8px;
+  min-width: 250px;
   max-height: min(72vh, 640px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  box-shadow: 0 8px 28px rgba(0,0,0,.55);
-  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "YouTube Sans", Roboto, sans-serif;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
+
+.yts-menu::-webkit-scrollbar {
+  width: 4px;
+}
+.yts-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 100px;
+}
+
 .yts-menu-head {
-  color: #9aa0a6;
-  font-size: 11px;
+  color: rgba(235, 235, 245, 0.5);
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: .06em;
-  padding: 8px 12px 4px;
+  letter-spacing: .08em;
+  font-weight: 700;
+  padding: 8px 12px 6px;
 }
+
 .yts-brand-head {
   color: #fff;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
   white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+  padding-bottom: 8px;
 }
-.yts-brand-head a { color: #818cf8; font-weight: 400; text-decoration: none; }
-.yts-brand-head a:hover { color: #a5b4fc; text-decoration: underline; }
+.yts-brand-head a { color: #38bdf8; font-weight: 500; text-decoration: none; }
+.yts-brand-head a:hover { color: #00f2fe; text-decoration: underline; }
 
+/* Apple Segmented Control Tabs */
 .yts-menu-tabs {
   display: flex;
-  gap: 4px;
-  padding: 6px 6px 8px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 6px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .yts-tab-btn {
   flex: 1;
-  padding: 5px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #94a3b8;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.6);
   font-family: inherit;
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   outline: none;
   text-align: center;
 }
 
 .yts-tab-btn:hover {
-  background: rgba(0, 242, 254, 0.1);
-  color: #00f2fe;
-  border-color: rgba(0, 242, 254, 0.3);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .yts-tab-btn.active {
-  background: linear-gradient(135deg, rgba(0, 242, 254, 0.25) 0%, rgba(79, 172, 254, 0.2) 100%);
-  color: #00f2fe;
-  border-color: #00f2fe;
-  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
 .yts-menu-item {
   color: #fff;
-  padding: 9px 14px;
-  border-radius: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13.5px;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.yts-menu-item:hover { background: rgba(255,255,255,.12); }
+.yts-menu-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  transform: translateX(2px);
+}
+.yts-menu-item:active {
+  transform: scale(0.98);
+}
 .yts-menu-item b { font-weight: 600; }
 .yts-menu-item.disabled {
-  color: #5f6368;
+  color: rgba(235, 235, 245, 0.35);
   cursor: not-allowed;
   pointer-events: none;
-  opacity: .55;
+  opacity: .5;
 }
 
 .yts-menu-radio {
@@ -197,173 +235,240 @@
   align-items: flex-start;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.yts-menu-radio:hover { background: rgba(255,255,255,.08); }
+.yts-menu-radio:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(2px);
+}
 .yts-dot {
   flex: 0 0 auto;
-  width: 15px; height: 15px;
+  width: 16px;
+  height: 16px;
   margin-top: 2px;
   border-radius: 50%;
-  border: 2px solid #888;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
   box-sizing: border-box;
   position: relative;
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.yts-menu-radio.sel .yts-dot { border-color: #00f2fe; }
+.yts-menu-radio.sel .yts-dot {
+  border-color: #00f2fe;
+  background: rgba(0, 242, 254, 0.15);
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.4);
+}
 .yts-menu-radio.sel .yts-dot::after {
-  content: ''; position: absolute;
-  inset: 2.5px; border-radius: 50%;
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
   background: #00f2fe;
 }
 .yts-radio-txt { display: flex; flex-direction: column; }
-.yts-radio-txt b { color: #fff; font-size: 13.5px; font-weight: 600; }
-.yts-radio-txt i { color: #9aa0a6; font-size: 11.5px; font-style: normal; margin-top: 2px; line-height: 1.3; }
+.yts-radio-txt b { color: #fff; font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
+.yts-radio-txt i { color: rgba(235, 235, 245, 0.55); font-size: 11.5px; font-style: normal; margin-top: 2px; line-height: 1.3; }
 .yts-menu-radio.sel .yts-radio-txt b { color: #38bdf8; }
+
+/* ---- Apple Glass Toast --------------------------------------------------- */
 
 #yts-toast {
   --yts-progress-color: #00f2fe;
   --yts-progress-text: #38bdf8;
   position: fixed;
-  right: 20px; bottom: 20px;
+  right: 20px;
+  bottom: 20px;
   z-index: 2147483647;
-  width: 320px;
-  background: rgba(20,20,20,.96);
+  width: 330px;
+  background: rgba(20, 23, 30, 0.8);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
   color: #fff;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
-  padding: 14px 16px;
-  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  padding: 15px 18px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "YouTube Sans", Roboto, sans-serif;
+  letter-spacing: -0.01em;
   font-size: 13px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.55);
-  opacity: 0; transform: translateY(8px);
-  transition: opacity .2s, transform .2s;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
+  -webkit-font-smoothing: antialiased;
 }
-#yts-toast.show { opacity: 1; transform: translateY(0); }
-#yts-toast .yts-toast-txt { display: block; margin-bottom: 8px; line-height: 1.35; }
+#yts-toast.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+#yts-toast .yts-toast-txt {
+  display: block;
+  margin-bottom: 9px;
+  line-height: 1.35;
+  font-weight: 600;
+}
 #yts-toast .yts-toast-bar {
-  height: 6px; border-radius: 4px;
-  background: rgba(255,255,255,.15);
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 #yts-toast .yts-toast-bar i {
-  display: block; height: 100%; width: 0%;
-  background: var(--yts-progress-color);
-  transition: width .16s linear;
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 55%, #0070f3 100%);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 #yts-toast .yts-toast-bar[hidden] { display: none; }
 #yts-toast .yts-toast-stages { display: none; }
 #yts-toast .yts-toast-stages.show {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
+  margin-top: 4px;
 }
 #yts-toast .yts-stage-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 3px;
-  color: #ddd;
+  margin-bottom: 4px;
+  color: rgba(235, 235, 245, 0.85);
   font-size: 11.5px;
+  font-weight: 500;
 }
-#yts-toast .yts-stage-value { color: #9aa0a6; }
+#yts-toast .yts-stage-value {
+  color: rgba(235, 235, 245, 0.5);
+  font-weight: 600;
+}
 #yts-toast .yts-stage-bar {
   height: 5px;
   overflow: hidden;
-  border-radius: 4px;
-  background: rgba(255,255,255,.12);
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 #yts-toast .yts-stage-bar i {
   display: block;
   width: 0;
   height: 100%;
-  background: var(--yts-progress-color);
-  transition: width .16s linear;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 55%, #0070f3 100%);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-#yts-toast .yts-stage.queued { opacity: .55; }
-#yts-toast .yts-stage.done .yts-stage-bar i,
-#yts-toast .yts-stage.error .yts-stage-bar i { background: var(--yts-progress-color); }
-#yts-toast .yts-stage.done .yts-stage-value,
-#yts-toast .yts-stage.error .yts-stage-value { color: var(--yts-progress-text); }
+#yts-toast .yts-stage.queued { opacity: .5; }
+#yts-toast .yts-stage.done .yts-stage-bar i {
+  background: linear-gradient(90deg, #00f2fe 0%, #34d399 100%);
+}
+#yts-toast .yts-stage.error .yts-stage-bar i {
+  background: #f87171;
+}
+#yts-toast .yts-stage.done .yts-stage-value { color: #00f2fe; }
+#yts-toast .yts-stage.error .yts-stage-value { color: #f87171; }
 #yts-toast .yts-toast-cancel {
   pointer-events: auto;
   display: block;
   width: 100%;
-  margin-top: 10px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255,255,255,.22);
-  border-radius: 8px;
-  background: rgba(255,255,255,.08);
-  color: #ff8a80;
-  font-size: 12.5px;
+  margin-top: 11px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-#yts-toast .yts-toast-cancel:hover { background: rgba(255,110,100,.16); }
+#yts-toast .yts-toast-cancel:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.4);
+  transform: translateY(-1px);
+}
+#yts-toast .yts-toast-cancel:active {
+  transform: scale(0.98);
+}
 #yts-toast .yts-toast-cancel[hidden] { display: none; }
 
-/* ---- playlist picker ---------------------------------------------------- */
+/* ---- Apple Glass Playlist Picker ----------------------------------------- */
 #yts-playlist-overlay {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  background: rgba(0,0,0,.6);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "YouTube Sans", Roboto, sans-serif;
+  letter-spacing: -0.01em;
 }
 .yts-playlist {
-  width: min(560px, 92vw);
+  width: min(580px, 92vw);
   max-height: 82vh;
   display: flex;
   flex-direction: column;
-  background: rgba(24,24,24,.99);
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 14px;
-  padding: 16px;
+  background: rgba(20, 23, 30, 0.85);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  padding: 18px;
   color: #fff;
-  box-shadow: 0 14px 44px rgba(0,0,0,.6);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), inset 0 1px 1px 0 rgba(255, 255, 255, 0.3);
 }
-.yts-playlist-head { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-.yts-playlist-note { color: #9aa0a6; font-size: 12px; line-height: 1.35; margin-bottom: 10px; }
+.yts-playlist-head { font-size: 17px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }
+.yts-playlist-note { color: rgba(235, 235, 245, 0.6); font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
 .yts-playlist-format {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   font-size: 13px;
 }
 .yts-playlist-format select {
   flex: 1;
-  background: #1f2124;
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  border: 1px solid rgba(255,255,255,.18);
-  border-radius: 8px;
-  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  padding: 8px 12px;
   font-size: 13px;
+  font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 .yts-playlist-list {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 10px;
-  padding: 4px;
-  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px;
+  margin-bottom: 14px;
 }
 .yts-playlist-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 13px;
+  transition: all 0.15s ease;
 }
-.yts-playlist-row:hover { background: rgba(255,255,255,.08); }
-.yts-playlist-row input { accent-color: #00f2fe; width: 15px; height: 15px; flex: 0 0 auto; }
+.yts-playlist-row:hover { background: rgba(255, 255, 255, 0.08); }
+.yts-playlist-row input { accent-color: #00f2fe; width: 16px; height: 16px; flex: 0 0 auto; }
 .yts-playlist-all { margin-bottom: 6px; font-weight: 600; }
-.yts-playlist-idx { color: #9aa0a6; min-width: 22px; text-align: right; flex: 0 0 auto; }
+.yts-playlist-idx { color: rgba(235, 235, 245, 0.5); min-width: 22px; text-align: right; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .yts-playlist-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -371,19 +476,30 @@
 }
 .yts-playlist-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .yts-btn {
-  border: 1px solid rgba(255,255,255,.2);
-  border-radius: 9px;
-  background: #26282b;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  padding: 8px 14px;
+  padding: 9px 16px;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.yts-btn:hover { background: #303338; }
-.yts-btn.primary { background: #00f2fe; border-color: #00f2fe; color: #08361d; font-weight: 600; }
-.yts-btn.primary:hover { background: #00f2fe; }
+.yts-btn:hover { background: rgba(255, 255, 255, 0.15); transform: translateY(-1px); }
+.yts-btn.primary {
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.95) 0%, rgba(0, 112, 243, 0.95) 100%);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #030814;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.5);
+}
+.yts-btn.primary:hover {
+  box-shadow: 0 8px 24px rgba(0, 242, 254, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+}
 
-/* ---- live recording panel ----------------------------------------------- */
+/* ---- Apple Glass Live Recording Panel ----------------------------------- */
 #yts-live-panel {
   position: fixed;
   right: 20px;
@@ -391,70 +507,85 @@
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-width: 280px;
-  padding: 13px 16px;
-  background: rgba(20,20,20,.96);
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 12px;
+  gap: 11px;
+  min-width: 290px;
+  padding: 14px 18px;
+  background: rgba(20, 23, 30, 0.82);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
   color: #fff;
-  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "YouTube Sans", Roboto, sans-serif;
+  letter-spacing: -0.01em;
   font-size: 13px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  -webkit-font-smoothing: antialiased;
 }
-#yts-live-panel .yts-live-head { display: flex; align-items: center; gap: 9px; }
+#yts-live-panel .yts-live-head { display: flex; align-items: center; gap: 9px; font-weight: 600; }
 #yts-live-panel .yts-live-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ff4e45;
+  background: #ff453a;
+  box-shadow: 0 0 10px rgba(255, 69, 58, 0.7);
   animation: yts-live-pulse 1.2s ease-in-out infinite;
   flex: 0 0 auto;
 }
-#yts-live-panel .yts-live-txt { font-variant-numeric: tabular-nums; }
+#yts-live-panel .yts-live-txt { font-variant-numeric: tabular-nums; color: rgba(235, 235, 245, 0.9); }
 #yts-live-panel .yts-live-stop { align-self: stretch; }
 
 @keyframes yts-live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .35; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(0.85); }
 }
 
-/* ---- playlist queue panel (pill collapses, expands on hover) ------------ */
+/* ---- Apple Glass Playlist Queue Panel ----------------------------------- */
 #yts-queue {
   position: fixed;
   left: 20px;
   bottom: 20px;
   z-index: 2147483646;
-  max-width: 380px;
-  background: rgba(20,20,20,.96);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
+  max-width: 390px;
+  background: rgba(20, 23, 30, 0.82);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
   color: #fff;
-  font-family: "YouTube Sans", Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "YouTube Sans", Roboto, sans-serif;
+  letter-spacing: -0.01em;
   font-size: 13px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
   overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-font-smoothing: antialiased;
 }
 #yts-queue .yts-queue-pill {
-  padding: 10px 14px;
+  padding: 11px 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #38bdf8;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-#yts-queue .yts-queue-body { display: none; padding: 0 10px 10px; }
+#yts-queue .yts-queue-body { display: none; padding: 0 12px 12px; }
 #yts-queue:hover .yts-queue-body { display: block; }
 #yts-queue .yts-queue-list {
   max-height: 44vh;
   overflow-y: auto;
-  margin-bottom: 8px;
+  margin-bottom: 9px;
 }
 #yts-queue .yts-queue-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 6px;
-  border-radius: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
 }
 #yts-queue .yts-queue-row .yts-queue-title {
   overflow: hidden;
@@ -462,9 +593,9 @@
   white-space: nowrap;
 }
 #yts-queue .yts-queue-ic { min-width: 14px; text-align: center; }
-#yts-queue .yts-queue-idx { color: #9aa0a6; min-width: 20px; text-align: right; }
+#yts-queue .yts-queue-idx { color: rgba(235, 235, 245, 0.5); min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
 #yts-queue .yts-queue-row.done .yts-queue-ic { color: #00f2fe; }
-#yts-queue .yts-queue-row.error .yts-queue-ic { color: #ff6b6b; }
-#yts-queue .yts-queue-row.active { background: rgba(0,242,254,.12); }
-#yts-queue .yts-queue-row.pending { opacity: .65; }
+#yts-queue .yts-queue-row.error .yts-queue-ic { color: #f87171; }
+#yts-queue .yts-queue-row.active { background: rgba(0, 242, 254, 0.14); border: 1px solid rgba(0, 242, 254, 0.3); }
+#yts-queue .yts-queue-row.pending { opacity: .6; }
 #yts-queue .yts-queue-actions { display: flex; justify-content: flex-end; }

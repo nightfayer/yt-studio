@@ -74,75 +74,120 @@
   height: 24px !important;
 }
 
-/* ---- menu ---------------------------------------------------------------- */
+/* ---- Apple Glass Menu ---------------------------------------------------- */
 
 .yts-vk-menu {
   position: fixed;
   z-index: 2147483000;
-  min-width: 260px;
-  max-width: 340px;
-  padding: 6px;
-  border-radius: 12px;
-  background: #1c1d21;
-  color: #e8e9eb;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  font: 13px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-width: 270px;
+  max-width: 350px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(20, 23, 30, 0.78);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f8fafc;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
 .yts-vk-head {
-  padding: 8px 10px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #9aa0a6;
+  padding: 8px 12px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(235, 235, 245, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 4px;
 }
 
 .yts-vk-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
   cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.yts-vk-item:hover { background: rgba(255, 255, 255, 0.08); }
-.yts-vk-muted { color: #9aa0a6; cursor: default; }
-.yts-vk-muted:hover { background: transparent; }
-.yts-vk-text { font-weight: 500; }
-.yts-vk-hint { font-size: 11px; color: #9aa0a6; }
+.yts-vk-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  transform: translateX(2px);
+}
 
-/* ---- toast --------------------------------------------------------------- */
+.yts-vk-item:active {
+  transform: scale(0.98);
+}
+
+.yts-vk-muted {
+  color: rgba(235, 235, 245, 0.5);
+  cursor: default;
+}
+.yts-vk-muted:hover {
+  background: transparent;
+  transform: none;
+}
+
+.yts-vk-text {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.yts-vk-hint {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.5);
+}
+
+/* ---- Apple Glass Toast --------------------------------------------------- */
 
 .yts-vk-toast {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: 20px;
+  bottom: 20px;
   z-index: 2147483000;
-  min-width: 260px;
-  max-width: 360px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #1c1d21;
-  color: #e8e9eb;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  font: 13px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  /* Hidden by transform, not by `display`: the panel slides in the way the
-     YouTube one does, and a `display: none` box cannot animate at all. */
+  min-width: 280px;
+  max-width: 380px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(20, 23, 30, 0.8);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f8fafc;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.01em;
   opacity: 0;
-  transform: translateY(12px);
+  transform: translateY(14px) scale(0.97);
   pointer-events: none;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-font-smoothing: antialiased;
 }
 
-.yts-vk-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.yts-vk-toast.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
 
-.yts-vk-toast-text { display: block; margin-bottom: 8px; }
+.yts-vk-toast-text {
+  display: block;
+  margin-bottom: 9px;
+  font-weight: 600;
+  color: #ffffff;
+}
 
 .yts-vk-toast-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .yts-vk-toast-bar[hidden] { display: none; }
@@ -151,58 +196,67 @@
   display: block;
   height: 100%;
   width: 0;
-  border-radius: 2px;
-  background: #00f2fe;
-  transition: width 0.2s ease;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 55%, #0070f3 100%);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ---- stages -------------------------------------------------------------- */
 
 .yts-vk-stages { display: none; }
-.yts-vk-stages.show { display: block; margin-top: 2px; }
+.yts-vk-stages.show { display: block; margin-top: 4px; }
 
-.yts-vk-stage { margin-top: 8px; }
-.yts-vk-stage.queued { opacity: 0.55; }
+.yts-vk-stage { margin-top: 9px; }
+.yts-vk-stage.queued { opacity: 0.5; }
 
 .yts-vk-stage-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
 }
 
-.yts-vk-stage-value { color: #9aa0a6; }
+.yts-vk-stage-label {
+  color: rgba(235, 235, 245, 0.85);
+  font-weight: 500;
+}
+
+.yts-vk-stage-value {
+  color: rgba(235, 235, 245, 0.5);
+  font-weight: 600;
+}
 .yts-vk-stage.done .yts-vk-stage-value { color: #00f2fe; }
-.yts-vk-stage.error .yts-vk-stage-value { color: #ff6e64; }
+.yts-vk-stage.error .yts-vk-stage-value { color: #f87171; }
 
 .yts-vk-stage-bar {
   position: relative;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .yts-vk-stage-bar i {
   display: block;
   height: 100%;
   width: 0;
-  border-radius: 2px;
-  background: #00f2fe;
-  transition: width 0.2s ease;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 55%, #0070f3 100%);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* A stage that cannot report a number — a remux, a browser hand-off — still has
-   to look alive, so the bar runs a stripe instead of standing empty. */
 .yts-vk-stage.busy .yts-vk-stage-bar::after {
   content: '';
   position: absolute;
   inset: 0;
-  width: 38%;
-  border-radius: 2px;
+  width: 40%;
+  border-radius: 100px;
   background: linear-gradient(90deg, rgba(0, 242, 254, 0), #00f2fe, rgba(0, 242, 254, 0));
-  animation: yts-vk-sweep 1.1s linear infinite;
+  animation: yts-vk-sweep 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes yts-vk-sweep {

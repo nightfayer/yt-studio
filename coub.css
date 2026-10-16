@@ -1,5 +1,4 @@
-/* Coub adapter UI. Separate from the YouTube and Rutube sheets: those are
-   injected on their own hosts and carry player-specific rules. */
+/* Coub adapter UI - Apple Glass / visionOS frosted aesthetic */
 
 [hidden] { display: none !important; }
 
@@ -7,80 +6,128 @@
    (sound) and top-right (menu), so this corner is free at every card size. */
 .yts-coub-btn {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
-  width: 36px;
-  height: 36px;
+  right: 12px;
+  bottom: 12px;
+  width: 38px;
+  height: 38px;
   padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(20, 23, 30, 0.72);
+  backdrop-filter: blur(18px) saturate(190%);
+  -webkit-backdrop-filter: blur(18px) saturate(190%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  color: #fff;
   font: inherit;
   cursor: pointer;
   z-index: 40;
   opacity: 0;
-  transition: opacity 0.15s ease;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  transform: scale(0.94);
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Coub's chrome fades in on hover; the button follows the same rhythm instead
-   of sitting permanently on top of the picture. Keyboard focus shows it too. */
+/* Coub's chrome fades in on hover; the button follows the same rhythm */
 .viewer:hover .yts-coub-btn,
-.yts-coub-btn:focus-visible { opacity: 0.92; }
-.yts-coub-btn:hover { opacity: 1; }
+.yts-coub-btn:focus-visible {
+  opacity: 0.95;
+  transform: scale(1);
+}
+
+.yts-coub-btn:hover {
+  opacity: 1;
+  transform: scale(1.06);
+  background: rgba(30, 36, 48, 0.85);
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+
+.yts-coub-btn:active {
+  transform: scale(0.96);
+}
 
 .yts-coub-btn svg {
-  width: 100%;
-  height: 100%;
+  width: 22px;
+  height: 22px;
   display: block;
   shape-rendering: geometricPrecision;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
 }
 
 /* ---- menu ---------------------------------------------------------------- */
 
+@keyframes yts-coub-glass-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .yts-coub-menu {
   position: fixed;
   z-index: 2147483000;
-  width: 288px;
+  width: 290px;
   max-height: 70vh;
   overflow-y: auto;
-  padding: 6px;
-  border: 1px solid #3c4043;
-  border-radius: 10px;
-  background: #181a1c;
-  color: #f1f1f1;
-  font: 13px/1.4 "Segoe UI", Roboto, Arial, sans-serif;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  background: rgba(20, 23, 30, 0.82);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  color: #f5f5f7;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.01em;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  animation: yts-coub-glass-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .yts-coub-head {
-  padding: 7px 10px;
-  color: #9aa0a6;
-  font-size: 12px;
+  padding: 8px 12px 6px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .yts-coub-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 7px;
+  gap: 3px;
+  padding: 9px 12px;
+  border-radius: 12px;
   cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease;
 }
 
-.yts-coub-item:hover { background: #23262a; }
+.yts-coub-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.yts-coub-item:active {
+  transform: scale(0.98);
+}
 
 .yts-coub-hint {
-  color: #9aa0a6;
+  color: rgba(255, 255, 255, 0.5);
   font-size: 11.5px;
 }
 
 .yts-coub-muted {
-  color: #9aa0a6;
+  color: rgba(255, 255, 255, 0.4);
   cursor: default;
 }
 
-.yts-coub-muted:hover { background: transparent; }
+.yts-coub-muted:hover {
+  background: transparent;
+}
 
 /* ---- toast --------------------------------------------------------------- */
 
@@ -90,28 +137,33 @@
   bottom: 28px;
   transform: translateX(-50%);
   z-index: 2147483000;
-  min-width: 280px;
+  min-width: 290px;
   max-width: 70vw;
-  padding: 11px 14px 13px;
-  border: 1px solid #3c4043;
-  border-radius: 10px;
-  background: #181a1c;
-  color: #f1f1f1;
-  font: 13px/1.4 "Segoe UI", Roboto, Arial, sans-serif;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  padding: 12px 18px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  background: rgba(20, 23, 30, 0.85);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  color: #f5f5f7;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.01em;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  animation: yts-coub-glass-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .yts-coub-toast::after {
   content: "";
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 6px;
-  height: 3px;
-  border-radius: 2px;
+  left: 16px;
+  right: 16px;
+  bottom: 8px;
+  height: 4px;
+  border-radius: 3px;
   background: linear-gradient(
     to right,
     #00f2fe var(--yts-coub-progress, 0%),
-    rgba(255, 255, 255, 0.14) var(--yts-coub-progress, 0%)
+    rgba(255, 255, 255, 0.12) var(--yts-coub-progress, 0%)
   );
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
 }
