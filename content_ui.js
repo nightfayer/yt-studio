@@ -615,81 +615,131 @@
     if (!box) {
       box = createElement('div');
       box.id = 'yts-toast';
+
+      const header = createElement('div', 'yts-toast-header');
+      const icon = createElement('span', 'yts-toast-icon');
+      const text = createElement('span', 'yts-toast-txt');
+      const cancelBtn = createElement('button', 'yts-toast-cancel');
+      cancelBtn.type = 'button';
+      cancelBtn.title = 'Отменить загрузку';
+      cancelBtn.setAttribute('aria-label', 'Отменить загрузку');
+      cancelBtn.hidden = true;
+      cancelBtn.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      cancelBtn.addEventListener('click', () => box.__ytsCancel?.());
+
+      header.append(icon, text, cancelBtn);
+
       const bar = createElement('div', 'yts-toast-bar');
       bar.append(createElement('i'));
-      const cancelButton = createElement('button', 'yts-toast-cancel', 'Отменить загрузку');
-      cancelButton.type = 'button';
-      cancelButton.hidden = true;
-      cancelButton.addEventListener('click', () => box.__ytsCancel?.());
-      box.append(createElement('span', 'yts-toast-txt'), bar, createElement('div', 'yts-toast-stages'), cancelButton);
+
+      // Keep hidden stages container for internal compatibility
+      const stages = createElement('div', 'yts-toast-stages');
+
+      box.append(header, bar, stages);
       document.body.append(box);
     }
+
     const text = box.querySelector('.yts-toast-txt');
-    const legacyBar = box.querySelector(':scope > .yts-toast-bar');
-    const progress = legacyBar.querySelector('i');
-    const stages = box.querySelector('.yts-toast-stages');
+    const bar = box.querySelector('.yts-toast-bar i');
     const cancel = box.querySelector('.yts-toast-cancel');
+
     const hideCancel = () => {
       box.__ytsCancel = null;
       cancel.hidden = true;
     };
+
+    let baseLabel = '';
+
+    const setProgress = (fraction, message, state = 'active') => {
+      clearTimeout(toastHideTimer);
+      const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+      bar.style.width = `${percent}%`;
+
+      if (message) text.textContent = message;
+
+      box.classList.remove('done', 'error');
+      if (state === 'done') {
+        box.classList.add('done');
+        hideCancel();
+      } else if (state === 'error') {
+        box.classList.add('error');
+        hideCancel();
+      }
+
+      box.classList.add('show');
+    };
+
     return {
       set(message, fraction = 0) {
-        clearTimeout(toastHideTimer);
-        text.textContent = message;
-        stages.replaceChildren();
-        stages.classList.remove('show');
-        legacyBar.hidden = false;
-        progress.style.width = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
-        hideCancel();
-        box.classList.add('show');
+        const isDone = fraction >= 1 || String(message).startsWith('Готово');
+        const isError = String(message).startsWith('Ошибка');
+        setProgress(
+          isDone ? 1 : fraction,
+          message,
+          isDone ? 'done' : (isError ? 'error' : 'active')
+        );
+        if (isDone || isError) hideCancel();
       },
+
       setCancel(handler, label = 'Отменить загрузку') {
         if (!handler) {
           hideCancel();
           return;
         }
         box.__ytsCancel = handler;
-        cancel.textContent = label;
         cancel.hidden = false;
       },
+
       beginStages(message, definitions) {
         clearTimeout(toastHideTimer);
-        text.textContent = message;
-        legacyBar.hidden = true;
-        stages.replaceChildren();
-        for (const definition of definitions) {
-          const row = createElement('div', 'yts-stage queued');
-          row.dataset.stage = definition.id;
-          const header = createElement('div', 'yts-stage-head');
-          header.append(createElement('span', 'yts-stage-label', definition.label), createElement('span', 'yts-stage-value', 'ожидание'));
-          const bar = createElement('div', 'yts-stage-bar');
-          bar.append(createElement('i'));
-          row.append(header, bar);
-          stages.append(row);
-        }
-        stages.classList.add('show');
-        box.classList.add('show');
+        baseLabel = (message || 'Скачивание…').replace(/^Подготовка\s*/i, '');
+        setProgress(0.04, message || 'Подготовка…', 'active');
       },
+
       stage(id, fraction, state = 'active', label) {
-        const row = stages.querySelector(`[data-stage="${id}"]`);
-        if (!row) return;
-        row.className = `yts-stage ${state}`;
-        if (label) row.querySelector('.yts-stage-label').textContent = label;
-        const value = row.querySelector('.yts-stage-value');
-        const bar = row.querySelector('.yts-stage-bar i');
-        if (Number.isFinite(fraction)) {
-          const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
-          value.textContent = state === 'done' ? 'готово' : `${percent}%`;
-          bar.style.width = `${percent}%`;
-        } else {
-          value.textContent = state === 'active' ? 'запуск…' : (state === 'error' ? 'ошибка' : 'ожидание');
-          bar.style.width = state === 'done' ? '100%' : '0%';
+        // Smoothly map internal processing stages into a single unified progress flow:
+        // capture:  0% -> 72%
+        // engine:   72% -> 78%
+        // transfer: 78% -> 84%
+        // process:  84% -> 99%
+        let overallFraction = 0.05;
+        let displayMessage = text.textContent;
+
+        if (id === 'capture') {
+          const capFrac = Number.isFinite(fraction) ? fraction : 0;
+          overallFraction = Math.min(0.72, 0.04 + capFrac * 0.68);
+          const p = Math.round(capFrac * 100);
+          displayMessage = p > 0 ? `Скачивание ${baseLabel} · ${p}%` : `Подготовка ${baseLabel}…`;
+        } else if (id === 'engine') {
+          overallFraction = state === 'done' ? 0.78 : 0.72;
+          displayMessage = 'Запуск медиадвижка…';
+        } else if (id === 'transfer') {
+          overallFraction = state === 'done' ? 0.84 : 0.78;
+          displayMessage = 'Сборка файла…';
+        } else if (id === 'process') {
+          const procFrac = Number.isFinite(fraction) ? fraction : 0;
+          overallFraction = Math.min(0.99, 0.84 + procFrac * 0.15);
+          const p = Math.round(procFrac * 100);
+          displayMessage = `${label || 'Кодирование / склейка'} · ${p}%`;
         }
+
+        if (state === 'done' && (id === 'process' || fraction >= 1)) {
+          overallFraction = 1;
+        }
+
+        setProgress(
+          overallFraction,
+          displayMessage,
+          state === 'error' ? 'error' : (overallFraction >= 1 ? 'done' : 'active')
+        );
       },
+
       hide(delay = 0) {
         clearTimeout(toastHideTimer);
-        toastHideTimer = setTimeout(() => box.classList.remove('show'), delay);
+        toastHideTimer = setTimeout(() => {
+          box.classList.remove('show');
+          hideCancel();
+        }, delay);
       },
     };
   }
