@@ -47,31 +47,44 @@
 /* Floating overlay inside player */
 .yts-vk-btn.yts-vk-overlay {
   position: absolute !important;
-  right: 14px !important;
-  top: 14px !important;
-  width: 38px !important;
-  height: 38px !important;
+  right: 16px !important;
+  top: 16px !important;
+  width: 40px !important;
+  height: 40px !important;
   border-radius: 50% !important;
-  background: rgba(18, 19, 23, 0.75) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  border: 1px solid rgba(0, 242, 254, 0.3) !important;
-  z-index: 9999 !important;
-  opacity: 0.85 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45) !important;
+  background: rgba(20, 23, 30, 0.78) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.35) !important;
+  z-index: 2147483000 !important;
+  opacity: 0.92 !important;
+  color: #00f2fe !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transform: scale(0.96) !important;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease, border-color 0.15s ease !important;
 }
 
 .yts-vk-btn.yts-vk-overlay:hover,
 .yts-vk-btn.yts-vk-overlay:focus-visible {
   opacity: 1 !important;
-  background: rgba(18, 19, 23, 0.95) !important;
-  border-color: rgba(0, 242, 254, 0.8) !important;
-  box-shadow: 0 4px 16px rgba(0, 242, 254, 0.35) !important;
+  transform: scale(1.08) !important;
+  background: rgba(30, 36, 48, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.5), 0 0 14px rgba(0, 242, 254, 0.4) !important;
+}
+
+.yts-vk-btn.yts-vk-overlay:active {
+  transform: scale(0.96) !important;
 }
 
 .yts-vk-btn.yts-vk-overlay svg {
   width: 24px !important;
   height: 24px !important;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)) !important;
 }
 
 /* ---- Apple Glass Menu ---------------------------------------------------- */

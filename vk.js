@@ -136,41 +136,47 @@
     const ids = videoIdFrom(target) || videoIdFrom(location.href) || videoIdFrom(location.pathname);
     if (!ids) throw new Error('не удалось определить видео');
 
-    const origin = (location.origin.includes('vkvideo.ru') || location.origin.includes('vk.com') || location.origin.includes('vk.ru'))
-      ? location.origin
-      : 'https://vk.com';
+    const origins = [
+      'https://vk.com',
+      location.origin.includes('vkvideo.ru') || location.origin.includes('vk.com') || location.origin.includes('vk.ru')
+        ? location.origin
+        : 'https://vkvideo.ru',
+      'https://vkvideo.ru',
+      'https://vk.ru',
+    ];
 
-    let url = `${origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
-    let response = await fetch(url, { credentials: 'include', cache: 'no-store' }).catch(() => null);
+    const uniqueOrigins = [...new Set(origins)];
+    let lastError = null;
 
-    // If current origin returned an error or was blocked, fallback to alternate origin
-    if (!response || !response.ok) {
-      const fallbackOrigin = origin.includes('vkvideo.ru') ? 'https://vk.com' : 'https://vkvideo.ru';
-      const fallbackUrl = `${fallbackOrigin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
-      const fallbackRes = await fetch(fallbackUrl, { credentials: 'include', cache: 'no-store' }).catch(() => null);
-      if (fallbackRes && fallbackRes.ok) {
-        response = fallbackRes;
-        url = fallbackUrl;
+    for (const origin of uniqueOrigins) {
+      try {
+        const url = `${origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
+        const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
+        if (!response.ok) continue;
+
+        const html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
+        if (html.includes('login.vk.ru') || html.includes('login_mobile') || html.includes('act=autologin')) {
+          continue;
+        }
+
+        const files = extractObject(html, 'files');
+        if (files && Object.keys(files).length > 0) {
+          const durationMatch = html.match(/"duration":(\d+)/);
+          return {
+            ...ids,
+            files,
+            duration: durationMatch ? Number(durationMatch[1]) : 0,
+            title: extractString(html, 'md_title') || extractString(html, 'title') || `video${ids.oid}_${ids.id}`,
+          };
+        }
+        const reason = extractString(html, 'error_msg') || extractString(html, 'msg');
+        if (reason) lastError = new Error(reason);
+      } catch (err) {
+        lastError = err;
       }
     }
 
-    if (!response || !response.ok) {
-      throw new Error(`страница плеера не открылась (HTTP ${response?.status || 'network error'})`);
-    }
-
-    const html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
-    const files = extractObject(html, 'files');
-    if (!files) {
-      const reason = extractString(html, 'error_msg') || extractString(html, 'msg');
-      throw new Error(reason || 'в ответе плеера нет ссылок на файлы');
-    }
-    const durationMatch = html.match(/"duration":(\d+)/);
-    return {
-      ...ids,
-      files,
-      duration: durationMatch ? Number(durationMatch[1]) : 0,
-      title: extractString(html, 'md_title') || extractString(html, 'title') || `video${ids.oid}_${ids.id}`,
-    };
+    throw lastError || new Error('в ответе плеера нет ссылок на файлы (возможно, требуется авторизация в VK)');
   }
 
   function progressiveRungs(files) {
@@ -516,15 +522,15 @@
   }
 
   async function openMenu(button, event) {
-    event.preventDefault();
-    event.stopPropagation();
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     if (menu) { closeMenu(); return; }
     menu = createElement('div', 'yts-vk-menu');
     const heading = createElement('div', 'yts-vk-head', `YT Studio v${chrome.runtime.getManifest().version}`);
     const loading = createElement('div', 'yts-vk-item yts-vk-muted', 'Читаю данные видео…');
     menu.append(heading, loading);
     document.body.appendChild(menu);
-    positionMenu(button);
+    positionMenu(button, event);
     document.addEventListener('click', onOutsideClick, true);
 
     try {
@@ -542,7 +548,7 @@
         item.addEventListener('click', () => { closeMenu(); void runChoice(info, choice); });
         menu.append(item);
       }
-      positionMenu(button);
+      positionMenu(button, event);
     } catch (error) {
       if (!menu) return;
       loading.remove();
@@ -552,24 +558,22 @@
     }
   }
 
-  function positionMenu(button) {
-    if (!menu || !button) return;
-    const box = button.getBoundingClientRect();
-    const width = menu.getBoundingClientRect().width || 280;
-    const height = menu.getBoundingClientRect().height || 200;
-    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, box.right - width))}px`;
-    menu.style.top = box.top > height + 16
-      ? `${box.top - height - 8}px`
-      : `${Math.min(window.innerHeight - height - 8, box.bottom + 8)}px`;
+  function positionMenu(button, event) {
+    if (!menu) return;
+    const box = button?.getBoundingClientRect?.() || { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    const width = menu.getBoundingClientRect().width || 290;
+    const height = menu.getBoundingClientRect().height || 220;
+    const x = box.width > 0 ? box.right : (event?.clientX || window.innerWidth / 2);
+    const y = box.height > 0 ? box.top : (event?.clientY || window.innerHeight / 2);
+
+    menu.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, x - width))}px`;
+    menu.style.top = y > height + 20
+      ? `${y - height - 10}px`
+      : `${Math.min(window.innerHeight - height - 12, (box.bottom || y) + 10)}px`;
   }
 
   // ---- mounting ----------------------------------------------------------------
-  // VK's class names are hashed, but the readable prefix survives the build, so
-  // the anchor is matched by prefix and then checked by size: the same markup
-  // exists collapsed (0×0) elsewhere on the page.
 
-  // The same ring-and-arrows mark the YouTube button uses, so one extension does
-  // not look like two.
   function createIcon() {
     const namespace = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(namespace, 'svg');
@@ -589,24 +593,80 @@
     return svg;
   }
 
-  // VK's player is a web component and its controls live inside an open shadow
-  // root, which an extension stylesheet cannot reach — hence the inline sheet
-  // below. Outside that root the button is stretched to the whole player by
-  // VK's own rules, so the light-DOM fallback pins its geometry with
-  // !important.
+  function makeButton() {
+    const button = document.createElement('button');
+    button.className = BUTTON_CLASS;
+    button.type = 'button';
+    button.title = 'Скачать видео (YT Studio)';
+    button.setAttribute('aria-label', button.title);
+    button.append(createIcon());
+    button.addEventListener('click', (event) => { void openMenu(button, event); });
+    return button;
+  }
+
   const SHADOW_STYLE = `
     .${BUTTON_CLASS} {
-      width: 40px; height: 40px; padding: 0; border: 0; margin: 0;
-      background: transparent; cursor: pointer; opacity: 0.9;
-      display: inline-flex; align-items: center; justify-content: center;
-      flex: 0 0 auto;
+      width: 40px !important;
+      height: 40px !important;
+      padding: 0 !important;
+      border: 0 !important;
+      margin: 0 4px !important;
+      background: transparent !important;
+      cursor: pointer !important;
+      opacity: 0.88 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex: 0 0 auto !important;
+      color: #00f2fe !important;
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease !important;
     }
-    .${BUTTON_CLASS}:hover { opacity: 1; }
-    .${BUTTON_CLASS} svg { width: 26px; height: 26px; display: block; }
+    .${BUTTON_CLASS}:hover {
+      opacity: 1 !important;
+      transform: scale(1.1) !important;
+    }
+    .${BUTTON_CLASS} svg {
+      width: 24px !important;
+      height: 24px !important;
+      display: block !important;
+    }
   `;
 
+  function findShadowRoots() {
+    const roots = [];
+    for (const host of document.querySelectorAll('div.shadow-root-container, [class*="shadow-root-container"], [class*="shadow-root"]')) {
+      if (host.shadowRoot) roots.push(host.shadowRoot);
+    }
+    if (!roots.length) {
+      for (const el of document.querySelectorAll('*')) {
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    }
+    return roots;
+  }
+
   function findActivePlayer() {
-    // 1. Visible <video> tag
+    // 1. VK Video player / modal elements
+    const selectors = [
+      '[class*="VideoPlayer__aspectRatio"]',
+      '[class*="VideoPlayer__player"]',
+      '[class*="videoplayer"]',
+      'div.video_box_wrap',
+      '#video_box_wrap',
+      '#mv_box',
+      '[class*="VideoModal"]',
+      '[class*="video_box"]',
+      'div.shadow-root-container',
+      '[data-testid="player"]',
+    ];
+    for (const sel of selectors) {
+      for (const el of document.querySelectorAll(sel)) {
+        const b = el.getBoundingClientRect();
+        if (b.width > 200 && b.height > 120) return el;
+      }
+    }
+
+    // 2. Visible <video> tag container
     const videos = [...document.querySelectorAll('video')];
     for (const video of videos) {
       const box = video.getBoundingClientRect();
@@ -614,31 +674,12 @@
         let cur = video.parentElement;
         while (cur && cur !== document.body) {
           const cBox = cur.getBoundingClientRect();
-          if (cBox.width >= box.width - 10 && cBox.height >= box.height - 10 && cBox.height > 100) {
+          if (cBox.width >= 300 && cBox.height >= 180) {
             return cur;
           }
           cur = cur.parentElement;
         }
         return video.parentElement;
-      }
-    }
-
-    // 2. VK Video player / modal elements
-    const selectors = [
-      'div.video_box_wrap',
-      '#video_box_wrap',
-      '#mv_box',
-      '[class*="VideoPlayer__player"]',
-      '[class*="VideoPlayer__aspectRatio"]',
-      '[class*="videoplayer"]',
-      '[class*="VideoModal"]',
-      '[class*="video_box"]',
-      'div.shadow-root-container',
-    ];
-    for (const sel of selectors) {
-      for (const el of document.querySelectorAll(sel)) {
-        const b = el.getBoundingClientRect();
-        if (b.width > 200 && b.height > 120) return el;
       }
     }
     return null;
@@ -647,7 +688,7 @@
   function mountInControls(container) {
     if (container.querySelector(`.${BUTTON_CLASS}`)) return true;
     const root = container.shadowRoot || container;
-    const controls = root.querySelector?.('[class*="player_controls"], [class*="controls"], [class*="Controls"], [class*="bottom_controls"], [class*="box_controls"]');
+    const controls = root.querySelector?.('.controls-right, [class*="controls-right"], [data-testid="player_controls"], [class*="player_controls"], [class*="controls"], [class*="Controls"], [class*="bottom_controls"], [class*="box_controls"]');
     if (!controls) return false;
 
     const buttons = [...controls.querySelectorAll('button, div[role="button"]')];
@@ -665,60 +706,102 @@
 
   function mountInShadow(root) {
     if (root.querySelector(`.${BUTTON_CLASS}`)) return true;
-    const host = root.host?.getBoundingClientRect?.() || { bottom: 0, height: 0 };
-    const controls = [...root.querySelectorAll('button')]
-      .map((element) => ({ element, box: element.getBoundingClientRect() }))
-      .filter((candidate) => candidate.box.width > 8
-        && candidate.box.bottom > host.bottom - host.height * 0.25);
-    if (!controls.length) return false;
-    const rightMost = controls.sort((left, right) => right.box.right - left.box.right)[0].element;
-    const wrapper = rightMost.closest('.tooltip-wrapper') || rightMost;
-    const row = wrapper.parentElement;
-    if (!row) return false;
+
     if (!root.querySelector('style[data-yts]')) {
       const style = document.createElement('style');
       style.setAttribute('data-yts', '1');
       style.textContent = SHADOW_STYLE;
       root.append(style);
     }
-    row.insertBefore(makeButton(), wrapper);
+
+    // 1. Direct match on .controls-right or [data-testid="player_controls"]
+    const controlsRight = root.querySelector('.controls-right, [class*="controls-right"], [class*="controls_right"]');
+    if (controlsRight) {
+      const btn = makeButton();
+      btn.classList.add('yts-vk-control-btn');
+      const last = controlsRight.lastElementChild;
+      if (last) {
+        controlsRight.insertBefore(btn, last);
+      } else {
+        controlsRight.appendChild(btn);
+      }
+      return true;
+    }
+
+    // 2. Any player controls wrapper
+    const controlsContainer = root.querySelector('[data-testid="player_controls"], [class*="controls-wrapper"], [class*="player_controls"], [class*="controls"]');
+    if (controlsContainer) {
+      const buttons = [...controlsContainer.querySelectorAll('button, div[role="button"]')];
+      if (buttons.length > 0) {
+        const lastBtn = buttons[buttons.length - 1];
+        const wrapper = lastBtn.closest('.tooltip-wrapper, [class*="tooltip"]') || lastBtn;
+        const row = wrapper.parentElement || controlsContainer;
+        const btn = makeButton();
+        btn.classList.add('yts-vk-control-btn');
+        row.insertBefore(btn, wrapper);
+        return true;
+      }
+    }
+
+    // 3. Fallback: find buttons by geometry
+    const host = root.host?.getBoundingClientRect?.() || { bottom: 0, height: 0 };
+    const controls = [...root.querySelectorAll('button, div[role="button"]')]
+      .map((element) => ({ element, box: element.getBoundingClientRect() }))
+      .filter((candidate) => candidate.box.width > 8
+        && (host.height === 0 || candidate.box.bottom > host.bottom - host.height * 0.35));
+    if (!controls.length) return false;
+    const rightMost = controls.sort((left, right) => right.box.right - left.box.right)[0].element;
+    const wrapper = rightMost.closest('.tooltip-wrapper, [class*="tooltip"]') || rightMost;
+    const row = wrapper.parentElement;
+    if (!row) return false;
+
+    const btn = makeButton();
+    btn.classList.add('yts-vk-control-btn');
+    row.insertBefore(btn, wrapper);
     return true;
   }
 
   function ensureButton() {
     const id = videoIdFrom(location.href) || videoIdFrom(location.pathname);
-    const hasPlayer = document.querySelector('video, div.video_box_wrap, #mv_box, [data-video-id]');
+    const hasPlayer = document.querySelector('video, div.video_box_wrap, #mv_box, [data-video-id], [class*="VideoPlayer"]');
     if (!id && !hasPlayer) {
       document.querySelectorAll(`.${BUTTON_CLASS}`).forEach((node) => node.remove());
       return;
     }
 
-    const shadowHost = document.querySelector('div.shadow-root-container');
-    if (shadowHost?.shadowRoot && mountInShadow(shadowHost.shadowRoot)) return;
-
-    const container = findActivePlayer();
-    if (!container) return;
-    if (container.querySelector(`.${BUTTON_CLASS}`)) return;
-
-    if (mountInControls(container)) return;
-
-    const button = makeButton();
-    button.classList.add('yts-vk-overlay');
-    if (getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative';
+    // Try mounting in shadow roots (control bar)
+    const roots = findShadowRoots();
+    for (const root of roots) {
+      mountInShadow(root);
     }
-    container.appendChild(button);
+
+    // Try mounting in light DOM controls
+    const container = findActivePlayer();
+    if (container) {
+      mountInControls(container);
+
+      // Also ensure floating Apple Glass overlay is present on player container
+      if (!container.querySelector(`.${BUTTON_CLASS}.yts-vk-overlay`) && !document.querySelector(`.${BUTTON_CLASS}.yts-vk-overlay`)) {
+        const overlayBtn = makeButton();
+        overlayBtn.classList.add('yts-vk-overlay');
+        if (getComputedStyle(container).position === 'static') {
+          container.style.position = 'relative';
+        }
+        container.appendChild(overlayBtn);
+      }
+    }
   }
 
-  // An interval, not requestAnimationFrame: rAF does not run in a hidden tab,
-  // and the SPA re-renders the player on every in-page navigation anyway.
   function schedule() {
     try { ensureButton(); } catch (error) {}
   }
+
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.t === 'yts-toggle-menu') {
-      const button = document.querySelector(`.${BUTTON_CLASS}`);
+      const button = document.querySelector(`.${BUTTON_CLASS}`)
+        || document.querySelector('div.shadow-root-container')?.shadowRoot?.querySelector?.(`.${BUTTON_CLASS}`);
       if (button) button.click();
+      else void openMenu(document.body);
     }
   });
 
