@@ -220,3 +220,28 @@ for (const entry of PLATFORM_SCRIPTS) {
     assert.doesNotThrow(() => runScript(ctx, entry.file));
   });
 }
+
+test('shared/media_hook.js captures HLS/MP4 URLs from fetch for YTStudioUtils.getCapturedMedia', async () => {
+  const ctx = createDomStub('https://rutube.ru/video/123/');
+  ctx.XMLHttpRequest = function XMLHttpRequest() {};
+  ctx.XMLHttpRequest.prototype = { open() {}, send() {} };
+  ctx.performance = { getEntriesByType: () => [] };
+  ctx.fetch = async (url) => ({
+    ok: true,
+    url,
+    headers: new Map([['content-type', 'application/vnd.apple.mpegurl']]),
+  });
+
+  runScript(ctx, 'shared/media_hook.js');
+  runScript(ctx, 'shared/utils.js');
+
+  await ctx.fetch('https://cdn.example.com/stream/master.m3u8');
+  await ctx.fetch('https://cdn.example.com/media/clip.mp4');
+
+  const hls = ctx.YTStudioUtils.getCapturedMedia('hls');
+  const mp4 = ctx.YTStudioUtils.getCapturedMedia('mp4');
+  assert.equal(hls.length, 1);
+  assert.equal(hls[0].url, 'https://cdn.example.com/stream/master.m3u8');
+  assert.equal(mp4.length, 1);
+  assert.equal(mp4[0].url, 'https://cdn.example.com/media/clip.mp4');
+});

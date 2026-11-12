@@ -210,8 +210,11 @@
     }
 
     // Anti-captcha fallback: extract stream directly from active player <video> element
+    // or from universal MAIN-world network hook when <video>.src is blob:/MSE.
     const video = entry?.video || document.querySelector(`div[id*="${id}"] video`) || document.querySelector('video');
-    const streamUrl = video?.currentSrc || video?.src;
+    const domUrl = video?.currentSrc || video?.src;
+    const hookedUrl = globalThis.YTStudioUtils?.getCapturedMedia?.('mp4')?.[0]?.url;
+    const streamUrl = (domUrl && domUrl.startsWith('http')) ? domUrl : hookedUrl;
     if (streamUrl && streamUrl.startsWith('http')) {
       const container = entry?.container || video.closest('article, [data-e2e="recommend-list-item-container"]') || document;
       const author = (entry?.rail?.querySelector(AVATAR_SELECTOR)?.getAttribute('href') || '')

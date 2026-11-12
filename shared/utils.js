@@ -277,6 +277,22 @@
     return merged;
   }
 
+  function getCapturedMedia(type = null) {
+    try {
+      if (typeof document === 'undefined') return [];
+      if (typeof Event === 'function') {
+        document.dispatchEvent(new Event('yts-media-probe'));
+      }
+      const raw = document.documentElement?.dataset?.ytsCapturedMedia;
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      if (!Array.isArray(list)) return [];
+      return type ? list.filter((item) => item && item.type === type) : list;
+    } catch (_) {
+      return [];
+    }
+  }
+
   const api = {
     RESERVED_DEVICE_NAMES,
     repairFilename,
@@ -285,6 +301,7 @@
     fetchWithFallback,
     fetchBytesWithResume,
     fetchBytesParallel,
+    getCapturedMedia,
   };
 
   root.YTStudioUtils = api;

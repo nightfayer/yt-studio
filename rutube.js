@@ -50,17 +50,41 @@
   async function fetchPlayOptions(videoId) {
     const url = `${location.origin}/api/play/options/${videoId}/`
       + `?no_404=true&referer=${encodeURIComponent(location.href)}`;
-    const response = await fetch(url, { credentials: 'include' });
-    if (!response.ok) throw new Error(`Rutube API ответил ${response.status}`);
-    const payload = await response.json();
-    const master = payload?.video_balancer?.m3u8 || payload?.video_balancer?.default;
-    if (!master) throw new Error('Rutube не отдал плейлист видео');
-    return {
-      master,
-      title: payload.title || document.title,
-      durationSeconds: (Number(payload.duration) || 0) / 1000,
-      isLive: Boolean(payload.is_livestream || payload.live_streams?.is_active),
-    };
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error(`Rutube API ответил ${response.status}`);
+      const payload = await response.json();
+      const master = payload?.video_balancer?.m3u8 || payload?.video_balancer?.default;
+      if (master) {
+        return {
+          master,
+          title: payload.title || document.title,
+          durationSeconds: (Number(payload.duration) || 0) / 1000,
+          isLive: Boolean(payload.is_livestream || payload.live_streams?.is_active),
+        };
+      }
+    } catch (apiError) {
+      const captured = globalThis.YTStudioUtils?.getCapturedMedia?.('hls') || [];
+      if (captured.length) {
+        return {
+          master: captured[0].url,
+          title: document.title,
+          durationSeconds: 0,
+          isLive: false,
+        };
+      }
+      throw apiError;
+    }
+    const captured = globalThis.YTStudioUtils?.getCapturedMedia?.('hls') || [];
+    if (captured.length) {
+      return {
+        master: captured[0].url,
+        title: document.title,
+        durationSeconds: 0,
+        isLive: false,
+      };
+    }
+    throw new Error('Rutube не отдал плейлист видео');
   }
 
   function parseAttributes(line) {
