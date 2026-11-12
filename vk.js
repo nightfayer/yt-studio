@@ -130,9 +130,88 @@
     try { return JSON.parse(`"${match[1]}"`); } catch (e) { return ''; }
   }
 
+  function hasUsableFiles(files) {
+    return Boolean(files && typeof files === 'object' && Object.keys(files).some((k) => /^(mp4_\d+|dash_sep|hls)$/i.test(k) && files[k]));
+  }
+
+  function extractFromPageScripts(oid, id) {
+    const marker = `${oid}_${id}`;
+    const scripts = document.querySelectorAll('script');
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      if (!text.includes('"files"')) continue;
+      if (text.includes(marker) || text.includes(`"vid":${id}`) || text.includes(`"id":${id}`)) {
+        const files = extractObject(text, 'files');
+        if (hasUsableFiles(files)) {
+          return {
+            files,
+            title: extractString(text, 'md_title') || extractString(text, 'title'),
+            duration: Number((text.match(/"duration":(\d+)/) || [])[1]) || 0,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  async function fetchAlVideo(oid, id) {
+    try {
+      const body = new URLSearchParams({
+        act: 'show',
+        al: '1',
+        video: `${oid}_${id}`,
+      });
+      const response = await fetch(`${location.origin}/al_video.php`, {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      if (!response.ok) return '';
+      return decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function extractFromPerformance() {
+    const entries = (typeof performance?.getEntriesByType === 'function'
+      ? performance.getEntriesByType('resource')
+      : []) || [];
+    const urls = entries
+      .map((entry) => String(entry?.name || ''))
+      .filter((url) => /^https:\/\//i.test(url) && /\.mp4(\?|$)/i.test(url) && /(vkuservideo|mycdn|vk-cdn|vk\.com|vkvideo)/i.test(url));
+    const videoEl = document.querySelector('video');
+    if (videoEl?.currentSrc && /^https:\/\//i.test(videoEl.currentSrc)) {
+      urls.unshift(videoEl.currentSrc);
+    }
+    const unique = [...new Set(urls)];
+    if (!unique.length) return null;
+    const files = {};
+    unique.forEach((url, index) => {
+      const qMatch = /[?&/](?:type|quality)=(\d+)|(\d{3,4})p/i.exec(url);
+      const height = Number(qMatch?.[1] || qMatch?.[2]) || (720 - index * 120);
+      const key = `mp4_${Math.max(144, height)}`;
+      if (!files[key]) files[key] = url;
+    });
+    return hasUsableFiles(files) ? files : null;
+  }
+
   async function loadVideo(target) {
     const ids = videoIdFrom(target) || videoIdFrom(location.href) || videoIdFrom(location.pathname);
     if (!ids) throw new Error('не удалось определить видео');
+
+    // 0. Try already-embedded player data in page scripts first (zero network latency)
+    const inline = extractFromPageScripts(ids.oid, ids.id);
+    if (inline) {
+      return {
+        ...ids,
+        files: inline.files,
+        duration: inline.duration,
+        title: inline.title || `video${ids.oid}_${ids.id}`,
+      };
+    }
 
     // 1. Fetch via background service worker to bypass page CORS and redirects
     const bgResult = await chrome.runtime.sendMessage({
@@ -142,34 +221,73 @@
     }).catch(() => null);
 
     let html = bgResult?.ok ? bgResult.html : '';
+    let files = html ? extractObject(html, 'files') : null;
 
-    // 2. Fallback to in-page fetch if background was unreachable
-    if (!html) {
+    // 2. Try authenticated in-page al_video.php (works when video_ext.php denies unhashed embeds)
+    if (!hasUsableFiles(files)) {
+      const alHtml = await fetchAlVideo(ids.oid, ids.id);
+      if (alHtml) {
+        const alFiles = extractObject(alHtml, 'files');
+        if (hasUsableFiles(alFiles)) {
+          html = alHtml;
+          files = alFiles;
+        } else {
+          const hashMatch = /"embed_hash":"([A-Za-z0-9_-]+)"|"hash":"([A-Za-z0-9_-]+)"/.exec(alHtml);
+          const hash = hashMatch?.[1] || hashMatch?.[2] || '';
+          if (hash) {
+            const hashedBg = await chrome.runtime.sendMessage({
+              t: 'yts-vk-payload',
+              oid: ids.oid,
+              id: ids.id,
+              hash,
+            }).catch(() => null);
+            if (hashedBg?.ok && hashedBg.html) {
+              const hashedFiles = extractObject(hashedBg.html, 'files');
+              if (hasUsableFiles(hashedFiles)) {
+                html = hashedBg.html;
+                files = hashedFiles;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback to in-page video_ext.php fetch with cookies
+    if (!hasUsableFiles(files)) {
       try {
-        const url = `https://vkvideo.ru/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
+        const url = `${location.origin}/video_ext.php?oid=${encodeURIComponent(ids.oid)}&id=${encodeURIComponent(ids.id)}&hd=4&autoplay=0`;
         const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
         if (response.ok) {
-          html = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
+          const extHtml = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
+          const extFiles = extractObject(extHtml, 'files');
+          if (hasUsableFiles(extFiles)) {
+            html = extHtml;
+            files = extFiles;
+          }
         }
       } catch (_) {}
     }
 
-    if (!html) {
-      throw new Error(bgResult?.error || 'не удалось получить данные видео');
+    // 4. Last resort: inspect active <video> / resource entries already loaded by the player
+    if (!hasUsableFiles(files)) {
+      files = extractFromPerformance();
     }
 
-    const files = extractObject(html, 'files');
-    if (!files || Object.keys(files).length === 0) {
-      const reason = extractString(html, 'error_msg') || extractString(html, 'msg');
-      throw new Error(reason || 'в ответе плеера нет ссылок на файлы (возможно, требуется авторизация в VK)');
+    if (!hasUsableFiles(files)) {
+      const reason = html ? (extractString(html, 'error_msg') || extractString(html, 'msg')) : '';
+      throw new Error(reason || bgResult?.error || 'в ответе плеера нет ссылок на файлы (возможно, требуется авторизация в VK)');
     }
 
-    const durationMatch = html.match(/"duration":(\d+)/);
+    const durationMatch = html ? html.match(/"duration":(\d+)/) : null;
+    const domTitle = document.querySelector('h1, .mv_title, [data-testid="video_modal_title"]')?.textContent?.trim();
     return {
       ...ids,
       files,
       duration: durationMatch ? Number(durationMatch[1]) : 0,
-      title: extractString(html, 'md_title') || extractString(html, 'title') || `video${ids.oid}_${ids.id}`,
+      title: (html && (extractString(html, 'md_title') || extractString(html, 'title')))
+        || domTitle
+        || `video${ids.oid}_${ids.id}`,
     };
   }
 

@@ -506,13 +506,14 @@ async function handleMessage(message, sender) {
     }
 
     case 'yts-vk-payload': {
-      const { oid, id } = message;
+      const { oid, id, hash } = message;
       if (!oid || !id) return { ok: false, error: 'отсутствует ID видео' };
 
+      const hashParam = hash ? `&hash=${encodeURIComponent(hash)}` : '';
       const urls = [
-        `https://vk.com/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
-        `https://vkvideo.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
-        `https://vk.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=4&autoplay=0`,
+        `https://vk.com/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}${hashParam}&hd=4&autoplay=0`,
+        `https://vkvideo.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}${hashParam}&hd=4&autoplay=0`,
+        `https://vk.ru/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}${hashParam}&hd=4&autoplay=0`,
       ];
 
       for (const url of urls) {
