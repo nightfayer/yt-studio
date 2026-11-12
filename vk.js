@@ -134,14 +134,59 @@
     return Boolean(files && typeof files === 'object' && Object.keys(files).some((k) => /^(mp4_\d+|dash_sep|hls)$/i.test(k) && files[k]));
   }
 
+  const hookedCache = new Map();
+  window.addEventListener('message', (event) => {
+    const data = event?.data;
+    if (data?.source !== 'yts-vk-hook' || !data.entry?.files) return;
+    if (data.entry.key) hookedCache.set(data.entry.key, data.entry);
+    hookedCache.set('_latest', data.entry);
+  });
+
+  function readHookedCache(oid, id) {
+    document.dispatchEvent(new Event('yts-vk-probe'));
+    const raw = document.documentElement?.dataset?.ytsVkCache;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v?.files) hookedCache.set(k, v);
+        }
+      } catch (_) {}
+    }
+    return hookedCache.get(`${oid}_${id}`) || hookedCache.get('_latest') || null;
+  }
+
+  function extractLooseFiles(text) {
+    if (!text || typeof text !== 'string') return null;
+    const direct = extractObject(text, 'files');
+    if (hasUsableFiles(direct)) return direct;
+
+    const unescaped = text.includes('\\"')
+      ? text.replace(/\\"/g, '"').replace(/\\\\\//g, '/')
+      : text.replace(/\\\//g, '/');
+    const escapedDirect = extractObject(unescaped, 'files');
+    if (hasUsableFiles(escapedDirect)) return escapedDirect;
+
+    const files = {};
+    const urlPattern = /"(mp4_\d+|url\d+|dash_sep|hls)"\s*:\s*"(https?:[^"]+)"/gi;
+    let m;
+    while ((m = urlPattern.exec(unescaped)) !== null) {
+      const k = m[1].toLowerCase();
+      const url = m[2].replace(/\\u0026/g, '&');
+      if (k.startsWith('url')) files[`mp4_${k.slice(3)}`] = url;
+      else files[k] = url;
+    }
+    return hasUsableFiles(files) ? files : null;
+  }
+
   function extractFromPageScripts(oid, id) {
     const marker = `${oid}_${id}`;
     const scripts = document.querySelectorAll('script');
     for (const script of scripts) {
       const text = script.textContent || '';
-      if (!text.includes('"files"')) continue;
+      if (!text.includes('mp4_') && !text.includes('url720') && !text.includes('dash_sep') && !text.includes('files')) continue;
       if (text.includes(marker) || text.includes(`"vid":${id}`) || text.includes(`"id":${id}`)) {
-        const files = extractObject(text, 'files');
+        const files = extractLooseFiles(text);
         if (hasUsableFiles(files)) {
           return {
             files,
@@ -202,7 +247,18 @@
     const ids = videoIdFrom(target) || videoIdFrom(location.href) || videoIdFrom(location.pathname);
     if (!ids) throw new Error('не удалось определить видео');
 
-    // 0. Try already-embedded player data in page scripts first (zero network latency)
+    // 0a. Check MAIN-world hook cache (captured from player's own XHR/fetch or globals)
+    const hooked = readHookedCache(ids.oid, ids.id);
+    if (hooked && hasUsableFiles(hooked.files)) {
+      return {
+        ...ids,
+        files: hooked.files,
+        duration: hooked.duration || 0,
+        title: hooked.title || `video${ids.oid}_${ids.id}`,
+      };
+    }
+
+    // 0b. Try already-embedded player data in page scripts (zero network latency)
     const inline = extractFromPageScripts(ids.oid, ids.id);
     if (inline) {
       return {
@@ -221,13 +277,13 @@
     }).catch(() => null);
 
     let html = bgResult?.ok ? bgResult.html : '';
-    let files = html ? extractObject(html, 'files') : null;
+    let files = html ? extractLooseFiles(html) : null;
 
     // 2. Try authenticated in-page al_video.php (works when video_ext.php denies unhashed embeds)
     if (!hasUsableFiles(files)) {
       const alHtml = await fetchAlVideo(ids.oid, ids.id);
       if (alHtml) {
-        const alFiles = extractObject(alHtml, 'files');
+        const alFiles = extractLooseFiles(alHtml);
         if (hasUsableFiles(alFiles)) {
           html = alHtml;
           files = alFiles;
@@ -242,7 +298,7 @@
               hash,
             }).catch(() => null);
             if (hashedBg?.ok && hashedBg.html) {
-              const hashedFiles = extractObject(hashedBg.html, 'files');
+              const hashedFiles = extractLooseFiles(hashedBg.html);
               if (hasUsableFiles(hashedFiles)) {
                 html = hashedBg.html;
                 files = hashedFiles;
@@ -260,7 +316,7 @@
         const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
         if (response.ok) {
           const extHtml = decodeBody(await response.arrayBuffer(), response.headers.get('content-type'));
-          const extFiles = extractObject(extHtml, 'files');
+          const extFiles = extractLooseFiles(extHtml);
           if (hasUsableFiles(extFiles)) {
             html = extHtml;
             files = extFiles;

@@ -1,6 +1,6 @@
 {
   "name": "yt-studio",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "private": true,
   "description": "YT Studio browser extension",
   "scripts": {
