@@ -21,8 +21,12 @@ jobs:
           zip -r "yt-studio-${{ github.ref_name }}.zip" . \
             -x "*.git*" \
             -x "*.github*" \
+            -x "tests/*" \
+            -x "package.json" \
+            -x "README.md" \
             -x "CHROMEWEBSTORE.md" \
-            -x "THIRD_PARTY_NOTICES.md"
+            -x "THIRD_PARTY_NOTICES.md" \
+            -x "icons/icon.svg"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
