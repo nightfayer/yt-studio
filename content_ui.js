@@ -12,7 +12,8 @@
   const TO_UI = '__yts_to_ui';
   const FROM_UI = '__yts_from_ui';
   const RELAYED_MESSAGES = new Set(['yts-log', 'yts-fetch-caption']);
-  const TRANSFER_CHUNK_SIZE = 4 * 1024 * 1024;
+  const TRANSFER_CHUNK_SIZE = 1024 * 1024;
+  const yieldToMain = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   let requestSequence = 1;
   let menu;
@@ -1203,6 +1204,7 @@
         t: 'yts-stage', jobId, track, b64: encodeBase64(chunk),
       }, 60_000).catch(() => null);
       if (!response?.ok) return false;
+      if (offset + TRANSFER_CHUNK_SIZE < bytes.length) await yieldToMain();
     }
     return true;
   }
@@ -1350,6 +1352,7 @@
           if (!response?.ok) throw new Error(response?.error || `передача данных прервалась (${track})`);
           transferredBytes += chunk.length;
           onStage?.('transfer', totalBytes ? transferredBytes / totalBytes : 1, 'active', 'Передача и сборка');
+          if (offset + TRANSFER_CHUNK_SIZE < bytes.length) await yieldToMain();
         }
       };
 
@@ -1452,6 +1455,7 @@
             if (!response?.ok) throw new Error(response?.error || `передача данных прервалась (${chunk.track})`);
             transferred += slice.length;
             if (chunk.track in transferredByTrack) transferredByTrack[chunk.track] += slice.length;
+            if (offset + TRANSFER_CHUNK_SIZE < bytes.length) await yieldToMain();
           }
           onStage?.('capture', totalBytes ? transferred / totalBytes : 0, 'active', 'Прямая загрузка (SABR)');
         }
@@ -1767,6 +1771,7 @@
             t: 'yts-live-chunk', jobId, track, mime: data.mime || '', b64: encodeBase64(part),
           }, 60_000);
           if (!response?.ok) throw new Error(response?.error || 'сегмент не принят обработчиком');
+          if (offset + TRANSFER_CHUNK_SIZE < bytes.length) await yieldToMain();
         }
         liveJob.sentBytes += bytes.length;
       }).catch((error) => failLiveTransfer(String(error?.message || error)));
