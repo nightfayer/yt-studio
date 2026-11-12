@@ -49,6 +49,7 @@ function createDomStub(url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ') {
     querySelectorAll: () => [],
     addEventListener: () => {},
     removeEventListener: () => {},
+    dispatchEvent: () => true,
   };
 
   const parsed = new URL(url);

@@ -280,7 +280,7 @@
   function getCapturedMedia(type = null) {
     try {
       if (typeof document === 'undefined') return [];
-      if (typeof Event === 'function') {
+      if (typeof document.dispatchEvent === 'function' && typeof Event === 'function') {
         document.dispatchEvent(new Event('yts-media-probe'));
       }
       const raw = document.documentElement?.dataset?.ytsCapturedMedia;
