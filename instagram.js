@@ -44,9 +44,7 @@
   }
 
   function formatBytes(size) {
-    const value = Number(size) || 0;
-    if (!value) return '';
-    return value >= 1e6 ? `${(value / 1e6).toFixed(1)} МБ` : `${Math.round(value / 1e3)} КБ`;
+    return YTStudioUtils.formatBytes(size);
   }
 
   // ---- video & url discovery --------------------------------------------------
@@ -238,22 +236,31 @@
   }
 
   async function fetchMedia(url) {
+    return YTStudioUtils.fetchWithFallback(url);
+  }
+
+  async function fetchMediaBytes(url, onProgress) {
     try {
-      const res = await fetch(url, { credentials: 'omit', cache: 'no-store' });
-      if (res.ok) return res;
-    } catch (e) {}
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) return res;
-    } catch (e) {}
-    return fetch(url, { credentials: 'include', cache: 'no-store' });
+      return await YTStudioUtils.fetchBytesWithResume(url, {
+        attempts: 3,
+        concurrency: 4,
+        onProgress,
+      });
+    } catch {
+      const response = await fetchMedia(url);
+      if (!response.ok) throw new Error(`сервер отказал (HTTP ${response.status})`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      onProgress?.(1);
+      return bytes;
+    }
   }
 
   async function fetchBlobDownload(url, filename, notification) {
-    notification.set('Загрузка видеопотока…', 0.2);
-    const response = await fetchMedia(url);
-    if (!response.ok) throw new Error(`сервер отказал (HTTP ${response.status})`);
-    const blob = await response.blob();
+    notification.set('Загрузка видеопотока…', 0.05);
+    const bytes = await fetchMediaBytes(url, (pct) => {
+      notification.set(`Загрузка видеопотока · ${Math.round(pct * 100)}%`, pct * 0.9);
+    });
+    const blob = new Blob([bytes], { type: 'video/mp4' });
     const objUrl = URL.createObjectURL(blob);
     const downloadId = await saveDirect(objUrl, filename);
     await followBrowserDownload(downloadId, notification);
@@ -261,11 +268,10 @@
   }
 
   async function downloadAudio(ctx, notification) {
-    notification.set('Подготовка звуковой дорожки…', 0.1);
-    const response = await fetchMedia(ctx.url);
-    if (!response.ok) throw new Error(`не удалось получить видео (HTTP ${response.status})`);
-    const arrayBuffer = await response.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+    notification.set('Подготовка звуковой дорожки…', 0.05);
+    const bytes = await fetchMediaBytes(ctx.url, (pct) => {
+      notification.set(`Загрузка дорожки · ${Math.round(pct * 100)}%`, pct * 0.35);
+    });
     const total = bytes.length;
 
     const jobId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;

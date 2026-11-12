@@ -1,5 +1,6 @@
 // Service worker: owns the offscreen document, persistent diagnostics and
 // browser downloads. ffmpeg.wasm itself runs in offscreen.html.
+importScripts('shared/utils.js');
 
 const LOG_KEY = 'yts_logs';
 const LOG_LIMIT = 400;
@@ -129,83 +130,13 @@ async function flushRecoveredFiles() {
   return result || { ok: false, error: 'обработчик медиа не ответил' };
 }
 
-// Windows refuses these as a base name whatever the extension is.
-const RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
-
-// Chrome does not fail a download whose filename it cannot use — it quietly
-// generates one from the URL instead, and for a blob: URL that is the blob's
-// UUID plus an extension guessed from the MIME type. That is where finished
-// files were landing as `50b453d3-4e0a-4112-a2d2-ec6fe31a2ee5.m4a`.
-//
-// The two ways a name got there:
-//   * a title cut with String.slice landed inside a surrogate pair, leaving a
-//     lone surrogate — the string is then not valid UTF-8 and Chrome discards
-//     the whole name;
-//   * a title made entirely of characters the callers strip («?», «|») left an
-//     empty base, so the name was just ".m4a".
-// Both are repaired here rather than in each adapter, so no site can reach
-// chrome.downloads with a name the browser will silently replace.
 function repairFilename(value) {
-  const raw = String(value || '');
-  const match = /^(.*?)(\.[A-Za-z0-9]{1,5})?$/s.exec(raw) || [];
-  let base = match[1] || '';
-  const extension = match[2] || '';
-  base = base
-    // Lone surrogates first: everything after this can assume valid text.
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-    // Chromium's IsFilenameLegal (base/i18n/file_util_icu.cc) refuses every
-    // format (Cf) and control (Cc) character and every non-character anywhere
-    // in the name, and chrome.downloads then refuses the download itself
-    // ("Invalid filename"). Cf is invisible and common in titles: the ZWJ that
-    // glues emoji sequences (U+1F636 U+200D U+1F32B U+FE0F, a field report),
-    // bidi marks around RTL words, soft hyphens, flag tag characters. Dropped
-    // rather than replaced, so a sequence falls apart into its visible emoji
-    // instead of taking the file with it.
-    .replace(/[\p{Cf}\p{Noncharacter_Code_Point}]+/gu, '')
-    .replace(/\p{Cc}+/gu, ' ')
-    .replace(/[\\/:*?"<>|]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    // Chromium also refuses whitespace, "." and "~" as the first or last
-    // character; a leading dot would also make the name read as an extension,
-    // and Windows rejects a trailing dot or space outright.
-    .replace(/^[.~\s]+/, '')
-    .replace(/[.~\s]+$/, '');
-  // By code points, so the truncation itself cannot recreate the lone surrogate
-  // this function exists to remove.
-  const points = [...base];
-  // Trailing dots and spaces are stripped again after the cut, not only before
-  // it: truncating «…AAA. more text» at 120 leaves «…AAA.», which Windows
-  // rejects just as it rejects the original.
-  if (points.length > 120) base = points.slice(0, 120).join('').replace(/[.~\s]+$/, '').trim();
-  // On Windows a name of up to 12 characters with a tilde can pass for an 8.3
-  // short name (`ABCDEF~1.MP3`), which Chromium refuses as well.
-  if (base.includes('~') && [...`${base}${extension}`].length <= 12) base = base.replace(/~/g, '-');
-  if (RESERVED_DEVICE_NAMES.test(base)) base = `_${base}`;
-  if (!base) base = 'yts-download';
-  return `${base}${extension}`;
+  return YTStudioUtils.repairFilename(value);
 }
 
 function detectPlatform(sender, downloadUrl, filename) {
   const pageUrl = sender?.tab?.url || sender?.url || '';
-  if (pageUrl.includes('youtube.com') || pageUrl.includes('youtu.be')) return 'YouTube';
-  if (pageUrl.includes('instagram.com')) return 'Instagram';
-  if (pageUrl.includes('tiktok.com')) return 'TikTok';
-  if (pageUrl.includes('rutube.ru') || pageUrl.includes('rutube.sport')) return 'Rutube';
-  if (pageUrl.includes('twitch.tv')) return 'Twitch';
-  if (pageUrl.includes('vk.com') || pageUrl.includes('vkvideo.ru') || pageUrl.includes('vk.ru')) return 'VK';
-  if (pageUrl.includes('coub.com')) return 'Coub';
-  if (pageUrl.includes('zvuk.com')) return 'Zvuk';
-
-  const fn = String(filename || '');
-  if (fn.startsWith('TikTok -')) return 'TikTok';
-  if (fn.startsWith('Rutube -') || fn.includes('Rutube')) return 'Rutube';
-  if (fn.startsWith('Twitch -') || fn.includes('Twitch')) return 'Twitch';
-  if (fn.startsWith('VK -') || fn.includes('VK')) return 'VK';
-  if (fn.startsWith('Coub -')) return 'Coub';
-  if (fn.startsWith('Zvuk -')) return 'Zvuk';
-  if (fn.includes('instagram') || fn.includes('_cover.jpg')) return 'Instagram';
-  return 'YouTube';
+  return YTStudioUtils.detectPlatform(pageUrl, filename);
 }
 
 async function saveDownload(url, filename, folder) {

@@ -70,9 +70,7 @@
   }
 
   function formatBytes(size) {
-    const value = Number(size) || 0;
-    if (!value) return '';
-    return value >= 1e6 ? `${(value / 1e6).toFixed(1)} МБ` : `${Math.round(value / 1e3)} КБ`;
+    return YTStudioUtils.formatBytes(size);
   }
 
   // ---- item data -------------------------------------------------------------

@@ -121,70 +121,14 @@
   //
   // Retries RESUME rather than start over: the CDN answers Range with 206, so a
   // connection that dies at 80 % costs the remaining 20 %.
-  const MEDIA_ATTEMPTS = 4;
-
   async function fetchMedia(url, onProgress, declaredSize = 0) {
-    const parts = [];
-    let received = 0;
-    let lastError = null;
-
-    for (let attempt = 0; attempt < MEDIA_ATTEMPTS; attempt++) {
-      if (attempt) await new Promise((resolve) => { setTimeout(resolve, 400 * attempt); });
-      try {
-        const response = await fetch(url, {
-          credentials: 'omit',
-          cache: 'no-store',
-          ...(received ? { headers: { Range: `bytes=${received}-` } } : {}),
-        });
-        // A server that ignores the range answers 200 with the whole file. Splicing
-        // that onto what we already hold would duplicate the head, so start clean.
-        if (received && response.status !== 206) {
-          parts.length = 0;
-          received = 0;
-        }
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const total = declaredSize
-          || (received + (Number(response.headers.get('content-length')) || 0));
-        if (!response.body) {
-          const bytes = new Uint8Array(await response.arrayBuffer());
-          parts.push(bytes);
-          received += bytes.length;
-        } else {
-          const reader = response.body.getReader();
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            parts.push(value);
-            received += value.length;
-            if (total) onProgress?.(Math.min(0.99, received / total));
-          }
-        }
-        // A resumed transfer that came up short is a failure, not a result: without
-        // this the muxer would happily assemble a truncated track.
-        if (declaredSize && received < declaredSize) {
-          throw new Error(`получено ${received} из ${declaredSize} байт`);
-        }
-        const merged = new Uint8Array(received);
-        let offset = 0;
-        for (const part of parts) {
-          merged.set(part, offset);
-          offset += part.length;
-        }
-        onProgress?.(1);
-        return merged;
-      } catch (error) {
-        lastError = error;
-        log('fetch', `attempt ${attempt + 1}/${MEDIA_ATTEMPTS} failed at ${received} bytes:`
-          + ` ${String(error?.message || error)}`);
-      }
-    }
-    // «Failed to fetch» on its own tells the user nothing, and the journal line
-    // above already records how far each attempt got.
-    const reason = String(lastError?.message || lastError);
-    throw new Error(/failed to fetch|networkerror/i.test(reason)
-      ? `не удалось получить файл с ${new URL(url).hostname}`
-        + ` (${MEDIA_ATTEMPTS} попытки, получено ${received} байт)`
-      : `файл недоступен: ${reason}`);
+    return YTStudioUtils.fetchBytesWithResume(url, {
+      attempts: 4,
+      onProgress,
+      declaredSize,
+      log,
+      concurrency: 4,
+    });
   }
 
   // Exact playing time of a bare MPEG audio file, summed frame by frame. The

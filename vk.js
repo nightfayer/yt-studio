@@ -51,9 +51,7 @@
   }
 
   function formatBytes(size) {
-    const value = Number(size) || 0;
-    if (!value) return '';
-    return value >= 1e6 ? `${(value / 1e6).toFixed(1)} МБ` : `${Math.round(value / 1e3)} КБ`;
+    return YTStudioUtils.formatBytes(size);
   }
 
   function formatClock(seconds) {
@@ -356,14 +354,21 @@
     };
     chrome.runtime.onMessage.addListener(onProgress);
     try {
-      // Slice by slice, so the page holds 8 MB at a time instead of the file.
+      // Slice by slice with 1-chunk lookahead prefetch so network transfer
+      // overlaps with IPC forwarding to the offscreen worker.
       let at = 0;
+      let nextFetch = at < total
+        ? fetchRange(track.url, at, Math.min(total - 1, at + SLICE_BYTES - 1))
+        : null;
       while (at < total) {
-        const end = Math.min(total - 1, at + SLICE_BYTES - 1);
-        const bytes = await fetchRange(track.url, at, end);
+        const bytes = await nextFetch;
         if (!bytes.length) throw new Error('сервер вернул пустой диапазон');
+        const nextAt = at + bytes.length;
+        nextFetch = nextAt < total
+          ? fetchRange(track.url, nextAt, Math.min(total - 1, nextAt + SLICE_BYTES - 1))
+          : null;
         await sendChunk(jobId, 'audio', bytes);
-        at += bytes.length;
+        at = nextAt;
         notification.stage('fetch', at / total, 'active', 'Скачивание звука');
       }
       notification.stage('fetch', 1, 'done', 'Скачивание звука');
